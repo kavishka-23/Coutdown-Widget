@@ -1,0 +1,156 @@
+<?xml version="1.0" encoding="utf-8"?>
+<LinearLayout xmlns:android="http://schemas.android.com/apk/res/android"
+    android:id="@+id/widget_root"
+    android:layout_width="match_parent"
+    android:layout_height="match_parent"
+    android:background="@drawable/bg_glass_widget"
+    android:orientation="vertical"
+    android:padding="12dp"
+    android:gravity="center_vertical">
+
+    <!-- Top header Row: Category & Status Indicator -->
+    <LinearLayout
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:orientation="horizontal"
+        android:gravity="center_vertical"
+        android:layout_marginBottom="4dp">
+
+        <FrameLayout
+            android:layout_width="6dp"
+            android:layout_height="6dp"
+            android:background="#FF4EAD"
+            android:layout_marginEnd="6dp" />
+
+        <TextView
+            android:id="@+id/widget_category"
+            android:layout_width="0dp"
+            android:layout_height="wrap_content"
+            android:layout_weight="1"
+            android:text="COSMOS EXPEDITION II"
+            android:textColor="#99FFFFFF"
+            android:textSize="10sp"
+            android:textStyle="bold"
+            android:ellipsize="end"
+            android:singleLine="true"
+            android:textAllCaps="true" />
+
+        <TextView
+            android:id="@+id/widget_indicator"
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:text="ACTIVE"
+            android:textColor="#818CF8"
+            android:textSize="9sp"
+            android:textStyle="bold"
+            android:layout_marginStart="8dp" />
+    </LinearLayout>
+
+    <!-- Main Title -->
+    <TextView
+        android:id="@+id/widget_title"
+        android:layout_width="match_parent"
+        android:layout_height="0dp"
+        android:layout_weight="1"
+        android:text="MARS BASE LANDING"
+        android:textColor="#FFFFFF"
+        android:textSize="16sp"
+        android:textStyle="bold"
+        android:ellipsize="end"
+        android:maxLines="2"
+        android:gravity="center_vertical"
+        android:layout_marginBottom="8dp" />
+
+    <!-- Countdown Pods Row -->
+    <LinearLayout
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:orientation="horizontal"
+        android:gravity="center_vertical">
+
+        <!-- Days Pod -->
+        <LinearLayout
+            android:layout_width="0dp"
+            android:layout_height="wrap_content"
+            android:layout_weight="1"
+            android:orientation="vertical"
+            android:gravity="center"
+            android:background="@drawable/bg_pod"
+            android:padding="6dp"
+            android:layout_marginEnd="6dp">
+            <TextView
+                android:id="@+id/widget_days"
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:text="14"
+                android:textColor="#FFFFFF"
+                android:textSize="18sp"
+                android:textStyle="bold" />
+            <TextView
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:text="Days"
+                android:textColor="#A0FFFFFF"
+                android:textSize="8sp"
+                android:textStyle="bold"
+                android:textAllCaps="true" />
+        </LinearLayout>
+
+        <!-- Hours Pod -->
+        <LinearLayout
+            android:layout_width="0dp"
+            android:layout_height="wrap_content"
+            android:layout_weight="1"
+            android:orientation="vertical"
+            android:gravity="center"
+            android:background="@drawable/bg_pod"
+            android:padding="6dp"
+            android:layout_marginEnd="6dp">
+            <TextView
+                android:id="@+id/widget_hours"
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:text="08"
+                android:textColor="#FFFFFF"
+                android:textSize="18sp"
+                android:textStyle="bold" />
+            <TextView
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:text="Hrs"
+                android:textColor="#A0FFFFFF"
+                android:textSize="8sp"
+                android:textStyle="bold"
+                android:textAllCaps="true" />
+        </LinearLayout>
+
+        <!-- Minutes Pod -->
+        <LinearLayout
+            android:layout_width="0dp"
+            android:layout_height="wrap_content"
+            android:layout_weight="1"
+            android:orientation="vertical"
+            android:gravity="center"
+            android:background="@drawable/bg_pod"
+            android:padding="6dp">
+            <TextView
+                android:id="@+id/widget_minutes"
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:text="42"
+                android:textColor="#FFFFFF"
+                android:textSize="18sp"
+                android:textStyle="bold" />
+            <TextView
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:text="Mins"
+                android:textColor="#A0FFFFFF"
+                android:textSize="8sp"
+                android:textStyle="bold"
+                android:textAllCaps="true" />
+        </LinearLayout>
+
+    </LinearLayout>
+
+</LinearLayout>
