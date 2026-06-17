@@ -6,18 +6,18 @@ import android.appwidget.AppWidgetProvider
 import android.content.ComponentName
 import android.content.Context
 import android.content.Intent
-import android.view.View
 import android.widget.RemoteViews
 import com.example.data.AppDatabase
 import com.example.data.CountdownEvent
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.SupervisorJob
+import kotlinx.coroutines.cancel
 import kotlinx.coroutines.flow.firstOrNull
 import kotlinx.coroutines.launch
+import java.lang.ref.WeakReference
 
 class CountdownWidgetProvider : AppWidgetProvider() {
-
-    private val scope = CoroutineScope(Dispatchers.IO)
 
     override fun onUpdate(
         context: Context,
@@ -26,17 +26,33 @@ class CountdownWidgetProvider : AppWidgetProvider() {
     ) {
         super.onUpdate(context, appWidgetManager, appWidgetIds)
 
-        // Query database on a background coroutine
-        scope.launch {
-            val db = AppDatabase.getDatabase(context)
-            val allEventsFlow = db.eventDao().getAllEvents()
-            val allEvents = allEventsFlow.firstOrNull() ?: emptyList()
+        // Capture applicationContext in a WeakReference for absolute leak prevention
+        val appContextRef = WeakReference(context.applicationContext)
+        val pendingResult = goAsync()
 
-            // Find pinned event, or first event, or null
-            val activeEvent = allEvents.firstOrNull { it.isPinned } ?: allEvents.firstOrNull()
+        // Create a short-lived dedicated scope with a supervisor job that is discarded/cancelled immediately after work completes
+        val workJob = SupervisorJob()
+        val workScope = CoroutineScope(Dispatchers.IO + workJob)
 
-            for (appWidgetId in appWidgetIds) {
-                updateWidget(context, appWidgetManager, appWidgetId, activeEvent)
+        workScope.launch {
+            try {
+                val appContext = appContextRef.get()
+                if (appContext != null) {
+                    val db = AppDatabase.getDatabase(appContext)
+                    val allEvents = db.eventDao().getAllEvents().firstOrNull() ?: emptyList()
+                    val activeEvent = allEvents.firstOrNull { it.isPinned } ?: allEvents.firstOrNull()
+
+                    for (appWidgetId in appWidgetIds) {
+                        updateWidget(appContext, appWidgetManager, appWidgetId, activeEvent)
+                    }
+                }
+            } catch (e: Exception) {
+                e.printStackTrace()
+            } finally {
+                // Terminate pending receiver status to release OS resources
+                pendingResult?.finish()
+                // Explicitly cancel coroutine scope to clean up any suspended operations
+                workScope.cancel()
             }
         }
     }
@@ -48,22 +64,63 @@ class CountdownWidgetProvider : AppWidgetProvider() {
         newOptions: android.os.Bundle
     ) {
         super.onAppWidgetOptionsChanged(context, appWidgetManager, appWidgetId, newOptions)
-        scope.launch {
-            val db = AppDatabase.getDatabase(context)
-            val allEvents = db.eventDao().getAllEvents().firstOrNull() ?: emptyList()
-            val activeEvent = allEvents.firstOrNull { it.isPinned } ?: allEvents.firstOrNull()
-            updateWidget(context, appWidgetManager, appWidgetId, activeEvent)
+        
+        val appContextRef = WeakReference(context.applicationContext)
+        val pendingResult = goAsync()
+
+        val workJob = SupervisorJob()
+        val workScope = CoroutineScope(Dispatchers.IO + workJob)
+
+        workScope.launch {
+            try {
+                val appContext = appContextRef.get()
+                if (appContext != null) {
+                    val db = AppDatabase.getDatabase(appContext)
+                    val allEvents = db.eventDao().getAllEvents().firstOrNull() ?: emptyList()
+                    val activeEvent = allEvents.firstOrNull { it.isPinned } ?: allEvents.firstOrNull()
+                    updateWidget(appContext, appWidgetManager, appWidgetId, activeEvent)
+                }
+            } catch (e: Exception) {
+                e.printStackTrace()
+            } finally {
+                pendingResult?.finish()
+                workScope.cancel()
+            }
         }
     }
 
     override fun onReceive(context: Context, intent: Intent) {
         super.onReceive(context, intent)
-        // Whenever a manual trigger occurs, update all widgets
         if (intent.action == ACTION_UPDATE_WIDGET_DATA) {
-            val appWidgetManager = AppWidgetManager.getInstance(context)
-            val thisWidget = ComponentName(context, CountdownWidgetProvider::class.java)
-            val allWidgetIds = appWidgetManager.getAppWidgetIds(thisWidget)
-            onUpdate(context, appWidgetManager, allWidgetIds)
+            val appContextRef = WeakReference(context.applicationContext)
+            val pendingResult = goAsync()
+
+            val workJob = SupervisorJob()
+            val workScope = CoroutineScope(Dispatchers.IO + workJob)
+
+            workScope.launch {
+                try {
+                    val appContext = appContextRef.get()
+                    if (appContext != null) {
+                        val appWidgetManager = AppWidgetManager.getInstance(appContext)
+                        val thisWidget = ComponentName(appContext, CountdownWidgetProvider::class.java)
+                        val allWidgetIds = appWidgetManager.getAppWidgetIds(thisWidget)
+
+                        val db = AppDatabase.getDatabase(appContext)
+                        val allEvents = db.eventDao().getAllEvents().firstOrNull() ?: emptyList()
+                        val activeEvent = allEvents.firstOrNull { it.isPinned } ?: allEvents.firstOrNull()
+
+                        for (appWidgetId in allWidgetIds) {
+                            updateWidget(appContext, appWidgetManager, appWidgetId, activeEvent)
+                        }
+                    }
+                } catch (e: Exception) {
+                    e.printStackTrace()
+                } finally {
+                    pendingResult?.finish()
+                    workScope.cancel()
+                }
+            }
         }
     }
 
@@ -124,7 +181,9 @@ class CountdownWidgetProvider : AppWidgetProvider() {
         }
 
         // Deep link to MainActivity
-        val configIntent = Intent(context, MainActivity::class.java)
+        val configIntent = Intent(context, MainActivity::class.java).apply {
+            flags = Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_CLEAR_TOP
+        }
         val configPendingIntent = PendingIntent.getActivity(
             context,
             appWidgetId,
@@ -133,7 +192,7 @@ class CountdownWidgetProvider : AppWidgetProvider() {
         )
         views.setOnClickPendingIntent(R.id.widget_root, configPendingIntent)
 
-        // Instruct widget manager to update the widget
+        // Update the widget
         appWidgetManager.updateAppWidget(appWidgetId, views)
     }
 
@@ -141,10 +200,10 @@ class CountdownWidgetProvider : AppWidgetProvider() {
         const val ACTION_UPDATE_WIDGET_DATA = "com.example.countdown.UPDATE_WIDGET"
 
         fun triggerWidgetUpdate(context: Context) {
-            val intent = Intent(context, CountdownWidgetProvider::class.java).apply {
+            val intent = Intent(context.applicationContext, CountdownWidgetProvider::class.java).apply {
                 action = ACTION_UPDATE_WIDGET_DATA
             }
-            context.sendBroadcast(intent)
+            context.applicationContext.sendBroadcast(intent)
         }
     }
 }

@@ -14,6 +14,7 @@ import kotlinx.coroutines.Job
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.*
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.isActive
 
 class CountdownViewModel(
     application: Application,
@@ -49,7 +50,7 @@ class CountdownViewModel(
     private fun startTimer() {
         timerJob?.cancel()
         timerJob = viewModelScope.launch {
-            while (true) {
+            while (isActive) {
                 _currentTime.value = System.currentTimeMillis()
                 delay(1000)
             }

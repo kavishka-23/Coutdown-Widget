@@ -11,11 +11,12 @@ import com.example.data.AppDatabase
 import com.example.data.CountdownEvent
 import kotlinx.coroutines.*
 import kotlinx.coroutines.flow.firstOrNull
+import java.lang.ref.WeakReference
 
 class CountdownNotificationService : Service() {
 
-    private val serviceJob = SupervisorJob()
-    private val serviceScope = CoroutineScope(Dispatchers.Main + serviceJob)
+    private var serviceJob: Job? = null
+    private var serviceScope: CoroutineScope? = null
     private var updateJob: Job? = null
 
     companion object {
@@ -26,34 +27,38 @@ class CountdownNotificationService : Service() {
         const val ACTION_UPDATE = "com.example.countdown.UPDATE"
 
         fun startService(context: Context) {
-            val intent = Intent(context, CountdownNotificationService::class.java).apply {
+            val intent = Intent(context.applicationContext, CountdownNotificationService::class.java).apply {
                 action = ACTION_START
             }
             if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
-                context.startForegroundService(intent)
+                context.applicationContext.startForegroundService(intent)
             } else {
-                context.startService(intent)
+                context.applicationContext.startService(intent)
             }
         }
 
         fun stopService(context: Context) {
-            val intent = Intent(context, CountdownNotificationService::class.java).apply {
+            val intent = Intent(context.applicationContext, CountdownNotificationService::class.java).apply {
                 action = ACTION_STOP
             }
-            context.startService(intent)
+            context.applicationContext.startService(intent)
         }
 
         fun triggerUpdate(context: Context) {
-            val intent = Intent(context, CountdownNotificationService::class.java).apply {
+            val intent = Intent(context.applicationContext, CountdownNotificationService::class.java).apply {
                 action = ACTION_UPDATE
             }
-            context.startService(intent)
+            context.applicationContext.startService(intent)
         }
     }
 
     override fun onCreate() {
-        super.onCreate();
+        super.onCreate()
         createNotificationChannel()
+        // Initialize dynamic SupervisorJob to prevent canceled job reuse issues
+        val job = SupervisorJob()
+        serviceJob = job
+        serviceScope = CoroutineScope(Dispatchers.Main + job)
     }
 
     override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
@@ -65,7 +70,7 @@ class CountdownNotificationService : Service() {
             return START_NOT_STICKY
         }
 
-        // Show launcher foreground notification fast
+        // Fast low-overhead foreground initialization
         val initialNoti = buildPlaceholderNotification()
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
             try {
@@ -75,14 +80,12 @@ class CountdownNotificationService : Service() {
                     ServiceInfo.FOREGROUND_SERVICE_TYPE_SPECIAL_USE
                 )
             } catch (e: Exception) {
-                // Background start restriction, fall back to simple startForeground
                 startForeground(NOTIFICATION_ID, initialNoti)
             }
         } else {
             startForeground(NOTIFICATION_ID, initialNoti)
         }
 
-        // Restart update cycle
         startUpdateCycle()
 
         return START_STICKY
@@ -90,22 +93,35 @@ class CountdownNotificationService : Service() {
 
     private fun startUpdateCycle() {
         updateJob?.cancel()
-        updateJob = serviceScope.launch {
+        val scope = serviceScope ?: return
+        updateJob = scope.launch(Dispatchers.Main) {
             while (isActive) {
                 updateNotificationContent()
-                delay(30000) // Update every 30 seconds for optimal performance and exact minutes
+                delay(30000) // Precise 30-sec interval to sync widget & notification bar 
             }
         }
     }
 
     private suspend fun updateNotificationContent() {
-        val db = AppDatabase.getDatabase(applicationContext)
-        val allEvents = db.eventDao().getAllEvents().firstOrNull() ?: emptyList()
-        val activeEvent = allEvents.firstOrNull { it.isPinned } ?: allEvents.firstOrNull()
+        val appContext = applicationContext ?: return
+        val contextRef = WeakReference(appContext)
 
-        val notificationManager = getSystemService(Context.NOTIFICATION_SERVICE) as NotificationManager
-        val updatedNoti = buildCustomNotification(activeEvent)
-        notificationManager.notify(NOTIFICATION_ID, updatedNoti)
+        withContext(Dispatchers.IO) {
+            val refContext = contextRef.get() ?: return@withContext
+            try {
+                val db = AppDatabase.getDatabase(refContext)
+                val allEvents = db.eventDao().getAllEvents().firstOrNull() ?: emptyList()
+                val activeEvent = allEvents.firstOrNull { it.isPinned } ?: allEvents.firstOrNull()
+
+                val notificationManager = refContext.getSystemService(Context.NOTIFICATION_SERVICE) as? NotificationManager
+                if (notificationManager != null) {
+                    val updatedNoti = buildCustomNotification(refContext, activeEvent)
+                    notificationManager.notify(NOTIFICATION_ID, updatedNoti)
+                }
+            } catch (e: Exception) {
+                e.printStackTrace()
+            }
+        }
     }
 
     private fun buildPlaceholderNotification(): Notification {
@@ -115,7 +131,9 @@ class CountdownNotificationService : Service() {
             Notification.Builder(this)
         }
 
-        val launchIntent = Intent(this, MainActivity::class.java)
+        val launchIntent = Intent(this, MainActivity::class.java).apply {
+            flags = Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_CLEAR_TOP
+        }
         val pendingIntent = PendingIntent.getActivity(
             this,
             0,
@@ -132,22 +150,25 @@ class CountdownNotificationService : Service() {
             .build()
     }
 
-    private fun buildCustomNotification(event: CountdownEvent?): Notification {
+    private fun buildCustomNotification(context: Context, event: CountdownEvent?): Notification {
         val builder = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
-            Notification.Builder(this, CHANNEL_ID)
+            Notification.Builder(context, CHANNEL_ID)
         } else {
-            Notification.Builder(this)
+            Notification.Builder(context)
         }
 
-        val launchIntent = Intent(this, MainActivity::class.java)
+        val launchIntent = Intent(context, MainActivity::class.java).apply {
+            flags = Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_CLEAR_TOP
+        }
         val pendingIntent = PendingIntent.getActivity(
-            this,
+            context,
             0,
             launchIntent,
             PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE
         )
 
-        val views = RemoteViews(packageName, R.layout.notification_countdown_layout)
+        // RemoteViews construction inside current layout
+        val views = RemoteViews(context.packageName, R.layout.notification_countdown_layout)
 
         if (event == null) {
             views.setTextViewText(R.id.noti_event_category, "UNIVERSAL DRIFT")
@@ -174,7 +195,7 @@ class CountdownNotificationService : Service() {
         return builder
             .setCustomContentView(views)
             .setCustomHeadsUpContentView(views)
-            .setSmallIcon(android.R.drawable.star_on) // Small minimalist bar indicator
+            .setSmallIcon(android.R.drawable.star_on)
             .setContentIntent(pendingIntent)
             .setOngoing(true)
             .setStyle(Notification.DecoratedCustomViewStyle())
@@ -185,19 +206,23 @@ class CountdownNotificationService : Service() {
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
             val name = "Premium Countdown Live Stream"
             val descriptionText = "Displays real-time notifications for active countdown events in Apple/iOS style"
-            val importance = NotificationManager.IMPORTANCE_LOW // Low priority so it does not make a sound on every tick
+            val importance = NotificationManager.IMPORTANCE_LOW
             val channel = NotificationChannel(CHANNEL_ID, name, importance).apply {
                 description = descriptionText
                 setShowBadge(false)
             }
-            val notificationManager = getSystemService(Context.NOTIFICATION_SERVICE) as NotificationManager
-            notificationManager.createNotificationChannel(channel)
+            val notificationManager = getSystemService(Context.NOTIFICATION_SERVICE) as? NotificationManager
+            notificationManager?.createNotificationChannel(channel)
         }
     }
 
     override fun onDestroy() {
         updateJob?.cancel()
-        serviceJob.cancel()
+        serviceScope?.cancel()
+        serviceJob?.cancel()
+        updateJob = null
+        serviceScope = null
+        serviceJob = null
         super.onDestroy()
     }
 
