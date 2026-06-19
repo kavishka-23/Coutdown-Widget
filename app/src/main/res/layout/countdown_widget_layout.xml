@@ -28,7 +28,7 @@
             android:layout_height="wrap_content"
             android:layout_weight="1"
             android:text="COSMOS EXPEDITION II"
-            android:textColor="#99FFFFFF"
+            android:textColor="#E6FFFFFF"
             android:textSize="10sp"
             android:textStyle="bold"
             android:ellipsize="end"
@@ -70,6 +70,7 @@
 
         <!-- Days Pod -->
         <LinearLayout
+            android:id="@+id/widget_days_container"
             android:layout_width="0dp"
             android:layout_height="wrap_content"
             android:layout_weight="1"
@@ -77,16 +78,17 @@
             android:gravity="center"
             android:background="@drawable/bg_pod"
             android:padding="6dp"
-            android:layout_marginEnd="6dp">
+            android:layout_marginEnd="5dp">
             <TextView
                 android:id="@+id/widget_days"
                 android:layout_width="wrap_content"
                 android:layout_height="wrap_content"
                 android:text="14"
                 android:textColor="#FFFFFF"
-                android:textSize="18sp"
+                android:textSize="16sp"
                 android:textStyle="bold" />
             <TextView
+                android:id="@+id/widget_days_lbl"
                 android:layout_width="wrap_content"
                 android:layout_height="wrap_content"
                 android:text="Days"
@@ -98,6 +100,7 @@
 
         <!-- Hours Pod -->
         <LinearLayout
+            android:id="@+id/widget_hours_container"
             android:layout_width="0dp"
             android:layout_height="wrap_content"
             android:layout_weight="1"
@@ -105,16 +108,17 @@
             android:gravity="center"
             android:background="@drawable/bg_pod"
             android:padding="6dp"
-            android:layout_marginEnd="6dp">
+            android:layout_marginEnd="5dp">
             <TextView
                 android:id="@+id/widget_hours"
                 android:layout_width="wrap_content"
                 android:layout_height="wrap_content"
                 android:text="08"
                 android:textColor="#FFFFFF"
-                android:textSize="18sp"
+                android:textSize="16sp"
                 android:textStyle="bold" />
             <TextView
+                android:id="@+id/widget_hours_lbl"
                 android:layout_width="wrap_content"
                 android:layout_height="wrap_content"
                 android:text="Hrs"
@@ -126,6 +130,37 @@
 
         <!-- Minutes Pod -->
         <LinearLayout
+            android:id="@+id/widget_minutes_container"
+            android:layout_width="0dp"
+            android:layout_height="wrap_content"
+            android:layout_weight="1"
+            android:orientation="vertical"
+            android:gravity="center"
+            android:background="@drawable/bg_pod"
+            android:padding="6dp"
+            android:layout_marginEnd="5dp">
+            <TextView
+                android:id="@+id/widget_minutes"
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:text="42"
+                android:textColor="#FFFFFF"
+                android:textSize="16sp"
+                android:textStyle="bold" />
+            <TextView
+                android:id="@+id/widget_minutes_lbl"
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:text="Mins"
+                android:textColor="#A0FFFFFF"
+                android:textSize="8sp"
+                android:textStyle="bold"
+                android:textAllCaps="true" />
+        </LinearLayout>
+
+        <!-- Seconds Pod -->
+        <LinearLayout
+            android:id="@+id/widget_seconds_container"
             android:layout_width="0dp"
             android:layout_height="wrap_content"
             android:layout_weight="1"
@@ -134,17 +169,18 @@
             android:background="@drawable/bg_pod"
             android:padding="6dp">
             <TextView
-                android:id="@+id/widget_minutes"
+                android:id="@+id/widget_seconds"
                 android:layout_width="wrap_content"
                 android:layout_height="wrap_content"
-                android:text="42"
+                android:text="15"
                 android:textColor="#FFFFFF"
-                android:textSize="18sp"
+                android:textSize="16sp"
                 android:textStyle="bold" />
             <TextView
+                android:id="@+id/widget_seconds_lbl"
                 android:layout_width="wrap_content"
                 android:layout_height="wrap_content"
-                android:text="Mins"
+                android:text="Secs"
                 android:textColor="#A0FFFFFF"
                 android:textSize="8sp"
                 android:textStyle="bold"

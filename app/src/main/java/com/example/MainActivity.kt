@@ -22,12 +22,6 @@ class MainActivity : ComponentActivity() {
         val factory = CountdownViewModel.Factory(application, repository)
         val viewModel = ViewModelProvider(this, factory)[CountdownViewModel::class.java]
 
-        // Auto-start notification countdown service if enabled by user
-        val sharedPrefs = getSharedPreferences("premium_countdown_prefs", MODE_PRIVATE)
-        if (sharedPrefs.getBoolean("noti_bar_countdown", false)) {
-            CountdownNotificationService.startService(this)
-        }
-
         setContent {
             MyApplicationTheme {
                 CountdownApp(viewModel = viewModel)

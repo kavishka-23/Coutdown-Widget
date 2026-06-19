@@ -25,7 +25,7 @@
             android:layout_width="match_parent"
             android:layout_height="wrap_content"
             android:text="COSMOS"
-            android:textColor="#99FFFFFF"
+            android:textColor="#E6FFFFFF"
             android:textSize="8sp"
             android:textStyle="bold"
             android:ellipsize="end"
@@ -45,6 +45,7 @@
     </LinearLayout>
 
     <LinearLayout
+        android:id="@+id/widget_pod_container"
         android:layout_width="wrap_content"
         android:layout_height="wrap_content"
         android:orientation="horizontal"
@@ -59,7 +60,7 @@
             android:layout_width="wrap_content"
             android:layout_height="wrap_content"
             android:textColor="#FFFFFF"
-            android:textSize="12sp"
+            android:textSize="11sp"
             android:textStyle="bold"
             android:text="14d 08h 42m" />
     </LinearLayout>

@@ -37,12 +37,16 @@ import androidx.compose.ui.window.Dialog
 import androidx.compose.ui.window.DialogProperties
 import com.example.data.CountdownEvent
 import com.example.CountdownWidgetProvider
-import com.example.CountdownNotificationService
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
 import com.example.R
 import androidx.compose.ui.res.painterResource
 import java.text.SimpleDateFormat
+import kotlinx.coroutines.delay
+import kotlinx.coroutines.launch
+import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.verticalScroll
+import androidx.compose.ui.graphics.drawscope.rotate
 import java.util.*
 
 @Composable
@@ -52,6 +56,27 @@ fun CountdownApp(viewModel: CountdownViewModel) {
     val currentTime by viewModel.currentTime.collectAsState()
     val allEvents by viewModel.allEvents.collectAsState()
     val pinnedEvent by viewModel.pinnedEvent.collectAsState()
+
+    // Notification permission launcher for Android 13 (Tiramisu)+ milestone alerts
+    val notiPermissionLauncher = rememberLauncherForActivityResult(
+        contract = ActivityResultContracts.RequestPermission()
+    ) { isGranted ->
+        if (!isGranted) {
+            Toast.makeText(context, "Milestone notifications are currently disabled. You can enable them anytime in App Settings.", Toast.LENGTH_LONG).show()
+        }
+    }
+
+    LaunchedEffect(Unit) {
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
+            val hasPerm = androidx.core.content.ContextCompat.checkSelfPermission(
+                context,
+                android.Manifest.permission.POST_NOTIFICATIONS
+            ) == android.content.pm.PackageManager.PERMISSION_GRANTED
+            if (!hasPerm) {
+                notiPermissionLauncher.launch(android.Manifest.permission.POST_NOTIFICATIONS)
+            }
+        }
+    }
 
     // Active bottom navigation tab: 0 = Countdown, 1 = Calendar, 2 = Settings
     var activeTab by remember { mutableStateOf(0) }
@@ -63,12 +88,72 @@ fun CountdownApp(viewModel: CountdownViewModel) {
     // Fallback pinned event if none explicitly pinned
     val activePinnedEvent = pinnedEvent ?: allEvents.firstOrNull()
 
-    // Background themes
-    val baseBgColor = if (isDarkMode) Color(0xFF050505) else Color(0xFFF1F5F9)
+    // Background themes - light mode sky blue mix
+    val baseBgColor = if (isDarkMode) Color(0xFF050505) else Color(0xFFE0F2FE)
 
     // Trigger widget updates whenever events or pinned state changes
     LaunchedEffect(allEvents, activePinnedEvent) {
         CountdownWidgetProvider.triggerWidgetUpdate(context)
+    }
+
+    val confettiState = remember { mutableStateListOf<ConfettiParticle>() }
+
+    // Monitor for newly concluded countdowns to pop interactive confetti!
+    LaunchedEffect(allEvents, currentTime) {
+        val sharedPrefs = context.getSharedPreferences("countdown_prefs", Context.MODE_PRIVATE)
+        val now = System.currentTimeMillis()
+        var needBurst = false
+        for (event in allEvents) {
+            val hasEnded = event.targetTimestamp <= now
+            if (hasEnded) {
+                val confettiKey = "confetti_shown_${event.id}"
+                if (!sharedPrefs.getBoolean(confettiKey, false)) {
+                    sharedPrefs.edit().putBoolean(confettiKey, true).apply()
+                    needBurst = true
+                }
+            }
+        }
+        if (needBurst) {
+            triggerConfettiBurst(confettiState)
+        }
+    }
+
+    // Confetti Physics loop carrying genuine upward blasting and downward drifting under gravity and wind sways
+    LaunchedEffect(confettiState.size) {
+        if (confettiState.isNotEmpty()) {
+            var frames = 0
+            while (confettiState.isNotEmpty()) {
+                delay(16)
+                frames++
+                val updated = confettiState.map { p ->
+                    // Apply gravity force (accelerating downward)
+                    val nextSpeedY = p.speedY + p.gravity
+                    val newY = p.y + nextSpeedY
+                    
+                    // Wind sway simulation based on sinusoidal wave
+                    val windForce = 0.0006f * kotlin.math.sin(frames * 0.08f + p.id)
+                    val newX = (p.x + p.speedX + windForce).coerceIn(0f, 1f)
+                    
+                    // Fade out once falling back down past lower part of screen
+                    val newOpacity = if (newY > 0.85f && nextSpeedY > 0) {
+                        (p.opacity - 0.015f).coerceAtLeast(0f)
+                    } else {
+                        p.opacity
+                    }
+                    
+                    p.copy(
+                        y = newY,
+                        x = newX,
+                        speedY = nextSpeedY,
+                        rotation = p.rotation + p.rotationSpeed,
+                        opacity = newOpacity
+                    )
+                }.filter { it.opacity > 0f && it.y < 1.15f }
+
+                confettiState.clear()
+                confettiState.addAll(updated)
+            }
+        }
     }
 
     Box(
@@ -78,6 +163,9 @@ fun CountdownApp(viewModel: CountdownViewModel) {
     ) {
         // Aesthetic Gradient Glow Blobs behind the screen
         GalaxyBlobBackground(isDarkMode = isDarkMode)
+
+        // Seasonal ambient overlay effects (snow list, cherry blossoms falling, sun light shining, maple drift)
+        SeasonalAmbientOverlay(isDarkMode = isDarkMode)
 
         // Scaffold styled container
         Scaffold(
@@ -164,38 +252,67 @@ fun CountdownApp(viewModel: CountdownViewModel) {
                 }
             )
         }
+
+        // Full Screen Celeb Confetti Overlay!
+        ConfettiOverlay(confettiState = confettiState)
     }
 }
 
 @Composable
 fun GalaxyBlobBackground(isDarkMode: Boolean) {
-    val blobColor1 = if (isDarkMode) Color(0xFF4F46E5).copy(alpha = 0.22f) else Color(0xFF38BDF8).copy(alpha = 0.35f)
-    val blobColor2 = if (isDarkMode) Color(0xFFC084FC).copy(alpha = 0.15f) else Color(0xFFF472B6).copy(alpha = 0.30f)
+    val blobColor1 = if (isDarkMode) Color(0xFF4F46E5).copy(alpha = 0.22f) else Color(0xFF38BDF8).copy(alpha = 0.50f) // Sky Blue
+    val blobColor2 = if (isDarkMode) Color(0xFFC084FC).copy(alpha = 0.15f) else Color(0xFFEC4899).copy(alpha = 0.38f) // Vivid Pink
+    val blobColor3 = if (isDarkMode) Color(0xFF06B6D4).copy(alpha = 0.10f) else Color(0xFF818CF8).copy(alpha = 0.45f) // Electric Indigo / Lavender
 
     Box(
         modifier = Modifier
             .fillMaxSize()
             .drawBehind {
-                // Top-Left glow
+                // Top-Left corner glow (Sky Blue)
                 drawCircle(
                     brush = Brush.radialGradient(
                         colors = listOf(blobColor1, Color.Transparent),
-                        center = androidx.compose.ui.geometry.Offset(-size.width * 0.1f, -size.height * 0.1f),
-                        radius = size.minDimension * 0.9f
+                        center = androidx.compose.ui.geometry.Offset(-size.width * 0.15f, -size.height * 0.15f),
+                        radius = size.minDimension * 1.1f
                     ),
-                    radius = size.minDimension * 0.9f,
-                    center = androidx.compose.ui.geometry.Offset(-size.width * 0.1f, -size.height * 0.1f)
+                    radius = size.minDimension * 1.1f,
+                    center = androidx.compose.ui.geometry.Offset(-size.width * 0.15f, -size.height * 0.15f)
                 )
 
-                // Bottom-Right glow
+                // Top-Right corner glow (Lavender / Indigo glow)
+                drawCircle(
+                    brush = Brush.radialGradient(
+                        colors = listOf(blobColor3, Color.Transparent),
+                        center = androidx.compose.ui.geometry.Offset(size.width * 1.15f, -size.height * 0.05f),
+                        radius = size.minDimension * 1.0f
+                    ),
+                    radius = size.minDimension * 1.0f,
+                    center = androidx.compose.ui.geometry.Offset(size.width * 1.15f, -size.height * 0.05f)
+                )
+
+                // Bottom-Right corner glow (Pink)
                 drawCircle(
                     brush = Brush.radialGradient(
                         colors = listOf(blobColor2, Color.Transparent),
-                        center = androidx.compose.ui.geometry.Offset(size.width * 1.1f, size.height * 1.1f),
+                        center = androidx.compose.ui.geometry.Offset(size.width * 1.2f, size.height * 1.15f),
+                        radius = size.minDimension * 1.2f
+                    ),
+                    radius = size.minDimension * 1.2f,
+                    center = androidx.compose.ui.geometry.Offset(size.width * 1.2f, size.height * 1.15f)
+                )
+
+                // Bottom-Left corner glow (Soft Blue-Green / Cyan glow)
+                drawCircle(
+                    brush = Brush.radialGradient(
+                        colors = listOf(
+                            if (isDarkMode) Color(0x12312E81) else Color(0x3560A5FA),
+                            Color.Transparent
+                        ),
+                        center = androidx.compose.ui.geometry.Offset(-size.width * 0.2f, size.height * 1.1f),
                         radius = size.minDimension * 0.9f
                     ),
                     radius = size.minDimension * 0.9f,
-                    center = androidx.compose.ui.geometry.Offset(size.width * 1.1f, size.height * 1.1f)
+                    center = androidx.compose.ui.geometry.Offset(-size.width * 0.2f, size.height * 1.1f)
                 )
             }
     )
@@ -214,9 +331,9 @@ fun CountdownHomeView(
     onToggleTheme: () -> Unit
 ) {
     val textPrimary = if (isDarkMode) Color.White else Color(0xFF1E293B)
-    val textSecondary = if (isDarkMode) Color.White.copy(alpha = 0.5f) else Color(0xFF64748B)
-    val glassBg = if (isDarkMode) Color(0x0EFFFFFF) else Color(0x15000000)
-    val glassBorder = if (isDarkMode) Color(0x1BFFFFFF) else Color(0x18000000)
+    val textSecondary = if (isDarkMode) Color.White.copy(alpha = 0.5f) else Color(0xFF475569)
+    val glassBg = if (isDarkMode) Color(0x0EFFFFFF) else Color(0x60FFFFFF)
+    val glassBorder = if (isDarkMode) Color(0x1BFFFFFF) else Color(0x66FFFFFF)
 
     Column(
         modifier = Modifier
@@ -233,14 +350,34 @@ fun CountdownHomeView(
             verticalAlignment = Alignment.CenterVertically
         ) {
             Column {
-                Text(
-                    text = "MY TIMELINE",
-                    style = MaterialTheme.typography.labelSmall.copy(
-                        color = textSecondary,
-                        fontWeight = FontWeight.Bold,
-                        letterSpacing = 2.sp
-                    )
-                )
+                // Season Indicator Chip (Month and Autumn/Winter/Spring/Summer)
+                Row(
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.spacedBy(6.dp),
+                    modifier = Modifier.padding(bottom = 4.dp)
+                ) {
+                    val cal = remember { Calendar.getInstance() }
+                    val currentMonthVal = cal.get(Calendar.MONTH)
+                    val currentSeasonStr = getSeasonForMonth(currentMonthVal).title
+                    val currentMonthStr = getMonthName(currentMonthVal)
+
+                    Box(
+                        modifier = Modifier
+                            .clip(RoundedCornerShape(8.dp))
+                            .background(if (isDarkMode) Color(0x1EFFFFFF) else Color(0x3538BDF8))
+                            .border(0.5.dp, if (isDarkMode) Color(0x15FFFFFF) else Color(0x9038BDF8), RoundedCornerShape(8.dp))
+                            .padding(horizontal = 8.dp, vertical = 2.dp)
+                    ) {
+                        Text(
+                            text = "$currentMonthStr · $currentSeasonStr",
+                            style = MaterialTheme.typography.labelSmall.copy(
+                                color = if (isDarkMode) Color(0xFFC084FC) else Color(0xFF0369A1),
+                                fontWeight = FontWeight.Bold,
+                                fontSize = 10.sp
+                            )
+                        )
+                    }
+                }
                 Text(
                     text = "Next Event",
                     style = MaterialTheme.typography.titleLarge.copy(
@@ -511,8 +648,8 @@ fun CountdownTimePod(
     isDarkMode: Boolean,
     modifier: Modifier = Modifier
 ) {
-    val glassBg = if (isDarkMode) Color(0x14FFFFFF) else Color(0x1B000000)
-    val glassBorder = if (isDarkMode) Color(0x2EFFFFFF) else Color(0x31000000)
+    val glassBg = if (isDarkMode) Color(0x14FFFFFF) else Color(0x50FFFFFF)
+    val glassBorder = if (isDarkMode) Color(0x2EFFFFFF) else Color(0x76FFFFFF)
     val textPrimary = if (isDarkMode) Color.White else Color(0xFF1E293B)
     val textLabel = if (isDarkMode) Color.White.copy(alpha = 0.4f) else Color(0xFF64748B)
 
@@ -558,8 +695,8 @@ fun EventRowCard(
 ) {
     val textPrimary = if (isDarkMode) Color.White else Color(0xFF1E293B)
     val textSecondary = if (isDarkMode) Color.White.copy(alpha = 0.4f) else Color(0xFF64748B)
-    val glassBg = if (isDarkMode) Color(0x14FFFFFF) else Color(0x1B000000)
-    val glassBorder = if (isDarkMode) Color(0x24FFFFFF) else Color(0x22000000)
+    val glassBg = if (isDarkMode) Color(0x14FFFFFF) else Color(0x50FFFFFF)
+    val glassBorder = if (isDarkMode) Color(0x24FFFFFF) else Color(0x76FFFFFF)
 
     val diff = event.targetTimestamp - currentTime
     val hasEnded = diff <= 0
@@ -783,8 +920,8 @@ fun CalendarEventsView(
                         val dateFormatted = SimpleDateFormat("EEE, dd MMM yyyy, hh:mm a", Locale.getDefault())
                             .format(Date(event.targetTimestamp))
 
-                        val glassBg = if (isDarkMode) Color(0x12FFFFFF) else Color(0x1B000000)
-                        val glassBorder = if (isDarkMode) Color(0x20FFFFFF) else Color(0x1E000000)
+                        val glassBg = if (isDarkMode) Color(0x12FFFFFF) else Color(0x50FFFFFF)
+                        val glassBorder = if (isDarkMode) Color(0x20FFFFFF) else Color(0x76FFFFFF)
 
                         Row(
                             modifier = Modifier
@@ -875,38 +1012,16 @@ fun SettingsAndInfoView(
     onTriggerWidgetSync: () -> Unit
 ) {
     val context = LocalContext.current
-    val sharedPrefs = remember { context.getSharedPreferences("premium_countdown_prefs", Context.MODE_PRIVATE) }
-    var isNotiEnabled by remember { mutableStateOf(sharedPrefs.getBoolean("noti_bar_countdown", false)) }
-
-    val hasNotiPermission = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
-        androidx.core.content.ContextCompat.checkSelfPermission(
-            context,
-            android.Manifest.permission.POST_NOTIFICATIONS
-        ) == android.content.pm.PackageManager.PERMISSION_GRANTED
-    } else {
-        true
-    }
-
-    val permissionLauncher = rememberLauncherForActivityResult(
-        contract = ActivityResultContracts.RequestPermission()
-    ) { isGranted ->
-        if (isGranted) {
-            sharedPrefs.edit().putBoolean("noti_bar_countdown", true).apply()
-            isNotiEnabled = true
-            CountdownNotificationService.startService(context)
-        } else {
-            Toast.makeText(context, "Notification permission is required for live countdown bar", Toast.LENGTH_SHORT).show()
-        }
-    }
 
     val textPrimary = if (isDarkMode) Color.White else Color(0xFF1E293B)
-    val textSecondary = if (isDarkMode) Color.White.copy(alpha = 0.5f) else Color(0xFF64748B)
-    val glassBg = if (isDarkMode) Color(0x10FFFFFF) else Color(0x1D000000)
-    val glassBorder = if (isDarkMode) Color(0x22FFFFFF) else Color(0x20000000)
+    val textSecondary = if (isDarkMode) Color.White.copy(alpha = 0.5f) else Color(0xFF475569)
+    val glassBg = if (isDarkMode) Color(0x10FFFFFF) else Color(0x56FFFFFF)
+    val glassBorder = if (isDarkMode) Color(0x22FFFFFF) else Color(0x66FFFFFF)
 
     Column(
         modifier = Modifier
             .fillMaxSize()
+            .verticalScroll(rememberScrollState())
             .padding(horizontal = 24.dp)
             .padding(top = 24.dp)
     ) {
@@ -987,7 +1102,8 @@ fun SettingsAndInfoView(
             ) {
                 Row(
                     verticalAlignment = Alignment.CenterVertically,
-                    horizontalArrangement = Arrangement.spacedBy(12.dp)
+                    horizontalArrangement = Arrangement.spacedBy(12.dp),
+                    modifier = Modifier.weight(1f)
                 ) {
                     Icon(
                         painter = painterResource(id = if (isDarkMode) R.drawable.ic_sun else R.drawable.ic_moon),
@@ -996,83 +1112,28 @@ fun SettingsAndInfoView(
                         modifier = Modifier.size(20.dp)
                     )
                     Column {
-                        Text("Dark Mode Theme", fontWeight = FontWeight.Bold, color = textPrimary, fontSize = 14.sp)
-                        Text("Toggle cosmic glass vs clinical slate", fontSize = 11.sp, color = textSecondary)
+                        Text("App Theme", fontWeight = FontWeight.Bold, color = textPrimary, fontSize = 14.sp)
+                        Text("Active: ${if (isDarkMode) "Cosmic Dark" else "Glassy Light"}", fontSize = 11.sp, color = textSecondary)
                     }
                 }
-                Switch(
-                    checked = isDarkMode,
-                    onCheckedChange = { onToggleTheme() },
-                    colors = SwitchDefaults.colors(
-                        checkedThumbColor = Color(0xFF818CF8),
-                        checkedTrackColor = Color(0xFF4F46E5)
-                    )
-                )
-            }
-
-            Divider(color = glassBorder.copy(alpha = 0.5f), thickness = 1.dp, modifier = Modifier.padding(horizontal = 12.dp))
-
-            // Option 1.5: Countdown Notification Bar (iOS Style)
-            Row(
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .clip(RoundedCornerShape(16.dp))
-                    .clickable {
-                        if (isNotiEnabled) {
-                            sharedPrefs.edit().putBoolean("noti_bar_countdown", false).apply()
-                            isNotiEnabled = false
-                            CountdownNotificationService.stopService(context)
-                        } else {
-                            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU && !hasNotiPermission) {
-                                permissionLauncher.launch(android.Manifest.permission.POST_NOTIFICATIONS)
-                            } else {
-                                sharedPrefs.edit().putBoolean("noti_bar_countdown", true).apply()
-                                isNotiEnabled = true
-                                CountdownNotificationService.startService(context)
-                            }
-                        }
-                    }
-                    .padding(12.dp),
-                verticalAlignment = Alignment.CenterVertically,
-                horizontalArrangement = Arrangement.SpaceBetween
-            ) {
+                
+                // Sleek, pill visual indicator that matches any display nicely without switches
                 Row(
-                    verticalAlignment = Alignment.CenterVertically,
-                    horizontalArrangement = Arrangement.spacedBy(12.dp)
+                    modifier = Modifier
+                        .clip(RoundedCornerShape(20.dp))
+                        .background(if (isDarkMode) Color(0xFF4F46E5).copy(alpha = 0.2f) else Color(0xFF38BDF8).copy(alpha = 0.2f))
+                        .border(1.dp, if (isDarkMode) Color(0xFF818CF8) else Color(0xFF38BDF8), RoundedCornerShape(20.dp))
+                        .padding(horizontal = 12.dp, vertical = 6.dp)
                 ) {
-                    Icon(
-                        imageVector = Icons.Default.Notifications,
-                        contentDescription = "Notification Icon",
-                        tint = textPrimary,
-                        modifier = Modifier.size(20.dp)
+                    Text(
+                        text = if (isDarkMode) "COSMIC" else "LIGHT",
+                        style = MaterialTheme.typography.labelSmall.copy(
+                            fontWeight = FontWeight.Bold,
+                            color = if (isDarkMode) Color(0xFFC084FC) else Color(0xFF0369A1),
+                            fontSize = 11.sp
+                        )
                     )
-                    Column {
-                        Text("iOS Notification Bar", fontWeight = FontWeight.Bold, color = textPrimary, fontSize = 14.sp)
-                        Text("Live system-translucent countdown pill", fontSize = 11.sp, color = textSecondary)
-                    }
                 }
-                Switch(
-                    checked = isNotiEnabled,
-                    onCheckedChange = { checked ->
-                        if (!checked) {
-                            sharedPrefs.edit().putBoolean("noti_bar_countdown", false).apply()
-                            isNotiEnabled = false
-                            CountdownNotificationService.stopService(context)
-                        } else {
-                            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU && !hasNotiPermission) {
-                                permissionLauncher.launch(android.Manifest.permission.POST_NOTIFICATIONS)
-                            } else {
-                                sharedPrefs.edit().putBoolean("noti_bar_countdown", true).apply()
-                                isNotiEnabled = true
-                                CountdownNotificationService.startService(context)
-                            }
-                        }
-                    },
-                    colors = SwitchDefaults.colors(
-                        checkedThumbColor = Color(0xFF818CF8),
-                        checkedTrackColor = Color(0xFF4F46E5)
-                    )
-                )
             }
 
             Divider(color = glassBorder.copy(alpha = 0.5f), thickness = 1.dp, modifier = Modifier.padding(horizontal = 12.dp))
@@ -1201,10 +1262,10 @@ fun CustomBottomNavBar(
     isDarkMode: Boolean,
     modifier: Modifier = Modifier
 ) {
-    val glassBg = if (isDarkMode) Color(0x18FFFFFF) else Color(0x30000000)
-    val glassBorder = if (isDarkMode) Color(0x35FFFFFF) else Color(0x30000000)
-    val textPrimary = if (isDarkMode) Color.White else Color(0xFF1E293B)
-    val activePillBg = if (isDarkMode) Color(0x2AFFFFFF) else Color(0x2A000000)
+    val glassBg = if (isDarkMode) Color(0x18FFFFFF) else Color(0x6AFFFFFF)
+    val glassBorder = if (isDarkMode) Color(0x35FFFFFF) else Color(0x8CFFFFFF)
+    val textPrimary = if (isDarkMode) Color.White else Color(0xFF0F172A)
+    val activePillBg = if (isDarkMode) Color(0x2AFFFFFF) else Color(0x1E38BDF8)
 
     Row(
         modifier = modifier
@@ -1288,8 +1349,8 @@ fun GlassyEventDialog(
 
     val textPrimary = if (isDarkMode) Color.White else Color(0xFF1E293B)
     val textSecondary = if (isDarkMode) Color.White.copy(alpha = 0.5f) else Color(0xFF64748B)
-    val glassBg = if (isDarkMode) Color(0xE60D0D12) else Color(0xE6F8FAFC)
-    val glassBorder = if (isDarkMode) Color(0x3CFFFFFF) else Color(0x35000000)
+    val glassBg = if (isDarkMode) Color(0xE60D0D12) else Color(0xEDF1F9FF)
+    val glassBorder = if (isDarkMode) Color(0x3CFFFFFF) else Color(0x8CFFFFFF)
 
     val dateFormatted = SimpleDateFormat("EEE, dd MMM yyyy, hh:mm a", Locale.getDefault())
         .format(Date(targetTimestamp))
@@ -1470,3 +1531,628 @@ fun GlassyEventDialog(
         }
     }
 }
+
+// --- Confetti celebration animations ---
+
+data class ConfettiParticle(
+    val id: Int,
+    val x: Float,
+    val y: Float,
+    val speedY: Float,
+    val speedX: Float,
+    val size: Float,
+    val color: Color,
+    val rotation: Float,
+    val rotationSpeed: Float,
+    val opacity: Float = 1.0f,
+    val gravity: Float = 0.00035f // gravity pull pull
+)
+
+fun triggerConfettiBurst(confettiState: MutableList<ConfettiParticle>) {
+    val randomColors = listOf(
+        Color(0xFFFF4EAD), // Vivid Pink
+        Color(0xFF818CF8), // Violet Blue
+        Color(0xFF34D399), // Emerald Green
+        Color(0xFFFBBF24), // Gold
+        Color(0xFF60A5FA), // Sky Blue
+        Color(0xFFC084FC), // Bright Purple
+        Color(0xFFF87171)  // Coral Red
+    )
+    val particles = (1..110).map { id ->
+        ConfettiParticle(
+            id = id,
+            x = (15..85).random() / 100f, // focused bottom areas
+            y = 1.05f, // completely at bottom of screen
+            speedY = -((18..34).random() / 1000f), // blast upwards fast!
+            speedX = ((-12..12).random() / 1000f), // Spread outward
+            size = (15..32).random().toFloat(),
+            color = randomColors.random(),
+            rotation = (0..360).random().toFloat(),
+            rotationSpeed = ((-6..6).random()).toFloat().let { if (it == 0f) 3f else it },
+            opacity = 1.0f
+        )
+    }
+    confettiState.clear()
+    confettiState.addAll(particles)
+}
+
+@Composable
+fun ConfettiOverlay(confettiState: List<ConfettiParticle>) {
+    if (confettiState.isEmpty()) return
+    androidx.compose.foundation.Canvas(
+        modifier = Modifier
+            .fillMaxSize()
+            .testTag("confetti_canvas")
+    ) {
+        val canvasWidth = size.width
+        val canvasHeight = size.height
+        confettiState.forEach { p ->
+            val drawX = p.x * canvasWidth
+            val drawY = p.y * canvasHeight
+            val drawSize = p.size
+            
+            rotate(p.rotation, pivot = androidx.compose.ui.geometry.Offset(drawX, drawY)) {
+                if (p.id % 2 == 0) {
+                    drawRect(
+                        color = p.color,
+                        topLeft = androidx.compose.ui.geometry.Offset(drawX - drawSize / 2, drawY - drawSize / 2),
+                        size = androidx.compose.ui.geometry.Size(drawSize, drawSize * 0.6f),
+                        alpha = p.opacity
+                    )
+                } else {
+                    drawCircle(
+                        color = p.color,
+                        center = androidx.compose.ui.geometry.Offset(drawX, drawY),
+                        radius = drawSize / 2,
+                        alpha = p.opacity
+                    )
+                }
+            }
+        }
+    }
+}
+
+
+// --- Seasonal Ambient Overlays ---
+
+enum class AppSeason(val title: String) {
+    SPRING("Spring ✨"),
+    SUMMER("Summer ☀️"),
+    AUTUMN("Autumn 🍁"),
+    WINTER("Winter ❄️")
+}
+
+fun getSeasonForMonth(month: Int): AppSeason {
+    return when (month) {
+        Calendar.DECEMBER, Calendar.JANUARY, Calendar.FEBRUARY -> AppSeason.WINTER
+        Calendar.MARCH, Calendar.APRIL, Calendar.MAY -> AppSeason.SPRING
+        Calendar.JUNE, Calendar.JULY, Calendar.AUGUST -> AppSeason.SUMMER
+        else -> AppSeason.AUTUMN
+    }
+}
+
+fun getMonthName(month: Int): String {
+    return when (month) {
+        Calendar.JANUARY -> "January"
+        Calendar.FEBRUARY -> "February"
+        Calendar.MARCH -> "March"
+        Calendar.APRIL -> "April"
+        Calendar.MAY -> "May"
+        Calendar.JUNE -> "June"
+        Calendar.JULY -> "July"
+        Calendar.AUGUST -> "August"
+        Calendar.SEPTEMBER -> "September"
+        Calendar.OCTOBER -> "October"
+        Calendar.NOVEMBER -> "November"
+        Calendar.DECEMBER -> "December"
+        else -> "Month"
+    }
+}
+
+data class SeasonParticle(
+    val id: Int,
+    val x: Float,
+    val y: Float,
+    val speedX: Float,
+    val speedY: Float,
+    val size: Float,
+    val rotation: Float,
+    val rotationSpeed: Float,
+    val color: Color,
+    val curveAnchor: Float = 0f,
+    val currentOpacity: Float = 1.0f
+)
+
+@Composable
+fun SeasonalAmbientOverlay(isDarkMode: Boolean) {
+    val calendar = remember { Calendar.getInstance() }
+    val month = calendar.get(Calendar.MONTH)
+    val season = remember { getSeasonForMonth(month) }
+    
+    // Ambient falling particle database
+    val particles = remember { mutableStateListOf<SeasonParticle>() }
+    
+    // Smooth entrance bloom and overlay element fade out state
+    val bloomAlpha = remember { androidx.compose.animation.core.Animatable(1.0f) }
+    val bloomScale = remember { androidx.compose.animation.core.Animatable(0.7f) }
+    
+    var triggerAnimCounter by remember { mutableStateOf(0) }
+    val lifecycleOwner = androidx.compose.ui.platform.LocalLifecycleOwner.current
+    DisposableEffect(lifecycleOwner) {
+        val observer = androidx.lifecycle.LifecycleEventObserver { _, event ->
+            if (event == androidx.lifecycle.Lifecycle.Event.ON_RESUME) {
+                triggerAnimCounter++
+            }
+        }
+        lifecycleOwner.lifecycle.addObserver(observer)
+        onDispose {
+            lifecycleOwner.lifecycle.removeObserver(observer)
+        }
+    }
+    
+    LaunchedEffect(season, triggerAnimCounter) {
+        val animDuration = if (season == AppSeason.SUMMER) 3500 else 10000
+        // Trigger beautiful organic bloom/overlay fade animation
+        bloomAlpha.snapTo(1.0f)
+        bloomScale.snapTo(0.7f)
+        launch {
+            bloomAlpha.animateTo(
+                targetValue = 0f,
+                animationSpec = androidx.compose.animation.core.tween(
+                    durationMillis = animDuration,
+                    easing = androidx.compose.animation.core.LinearEasing
+                )
+            )
+        }
+        launch {
+            bloomScale.animateTo(
+                targetValue = 1.6f,
+                animationSpec = androidx.compose.animation.core.tween(
+                    durationMillis = animDuration,
+                    easing = androidx.compose.animation.core.LinearOutSlowInEasing
+                )
+            )
+        }
+
+        val count = when (season) {
+            AppSeason.WINTER -> 35
+            AppSeason.SPRING -> 22
+            AppSeason.AUTUMN -> 10 // Sparse amount of maples as requested!
+            AppSeason.SUMMER -> 0  // No falling particles in Summer
+        }
+        val randomColors = when (season) {
+            AppSeason.WINTER -> listOf(Color(0xE6FFFFFF), Color(0xCCBAE6FD), Color(0x99E2E8F0))
+            AppSeason.SPRING -> listOf(Color(0xFFFBCFE8), Color(0xFFFFC0CB), Color(0xFFF472B6)) // Sakura soft pinks
+            AppSeason.AUTUMN -> listOf(Color(0xFFE25B38), Color(0xFFD97706), Color(0xFFB45309), Color(0xFFDC2626)) // Maple rich copper/gold/orange
+            AppSeason.SUMMER -> listOf()
+        }
+        
+        val list = (1..count).map { id ->
+            // Spring petals start exactly on the top-right branch
+            val startY = if (season == AppSeason.SPRING) {
+                (2..12).random() / 100f
+            } else {
+                (0..100).random() / 100f // scatter on initialization
+            }
+            val startX = if (season == AppSeason.SPRING) {
+                (55..95).random() / 100f
+            } else {
+                (0..100).random() / 100f
+            }
+            
+            val customSize = when (season) {
+                AppSeason.WINTER -> (6..14).random().toFloat()       // Smaller soft snowflakes
+                AppSeason.SPRING -> (12..24).random().toFloat()      // High-resolution blossom petals
+                AppSeason.AUTUMN -> (28..40).random().toFloat()      // Beautiful larger recognizable maples
+                else -> 10f
+            }
+
+            SeasonParticle(
+                id = id,
+                x = startX,
+                y = startY,
+                speedY = when (season) {
+                    AppSeason.WINTER -> (5..12).random() / 1000f
+                    AppSeason.SPRING -> (4..9).random() / 1000f     // Sakura is lighter, descends slower
+                    AppSeason.AUTUMN -> (4..10).random() / 1000f      // Moderate leaf weight
+                    else -> 5f / 1000f
+                },
+                speedX = when (season) {
+                    AppSeason.WINTER -> ((-4..4).random() / 3000f)
+                    AppSeason.SPRING -> ((-16..-6).random() / 3000f) // Sakura drifts left-bound with natural wind
+                    AppSeason.AUTUMN -> ((-14..-4).random() / 2500f) // Maple drifts gracefully
+                    else -> 0f
+                },
+                size = customSize,
+                rotation = (0..360).random().toFloat(),
+                rotationSpeed = when (season) {
+                    AppSeason.WINTER -> ((-3..3).random()).toFloat().let { if (it == 0f) 0.5f else it }
+                    AppSeason.SPRING -> ((-6..6).random()).toFloat().let { if (it == 0f) 1.5f else it }
+                    AppSeason.AUTUMN -> ((-8..8).random()).toFloat().let { if (it == 0f) 2.5f else it }
+                    else -> 1.5f
+                },
+                color = if (randomColors.isNotEmpty()) randomColors.random() else Color.Transparent,
+                curveAnchor = (0..100).random() / 10f,
+                currentOpacity = 1.0f
+            )
+        }
+        particles.clear()
+        particles.addAll(list)
+    }
+    
+    // Physics frames update loop with dynamic natural wind sway and fade effects
+    LaunchedEffect(particles.size) {
+        if (particles.isNotEmpty()) {
+            var time = 0f
+            while (true) {
+                // If the entrance ambient fade has completely finished, sleep to conserve 100% CPU
+                if (bloomAlpha.value <= 0.01f) {
+                    delay(200)
+                    continue
+                }
+                delay(20)
+                time += 0.03f
+                
+                val updated = particles.map { p ->
+                    var newY = p.y + p.speedY
+                    var newX = p.x + p.speedX
+                    var newRot = p.rotation + p.rotationSpeed
+                    var newOp = p.currentOpacity
+                    
+                    when (season) {
+                        AppSeason.WINTER -> {
+                            // Natural snow wind sways
+                            val windTimeSway = 0.0022f * kotlin.math.sin(time + p.curveAnchor)
+                            newX += windTimeSway
+                            // Snow fade out as it approaches the screen bottom
+                            if (newY > 0.75f) {
+                                newOp = (1.0f - (newY - 0.75f) / 0.25f).coerceIn(0f, 1f)
+                            } else {
+                                newOp = 1.0f
+                            }
+                        }
+                        AppSeason.SPRING -> {
+                            // Sakura caught in natural breeze, drifting diagonally downwards to the left
+                            val windBlow = -0.0018f - (0.003f * kotlin.math.sin(time * 0.7f + p.curveAnchor))
+                            newX += windBlow
+                            newRot += 1.1f * kotlin.math.cos(time * 0.4f + p.id)
+                            
+                            // Fade out as they fall down past 80% mark
+                            if (newY > 0.80f) {
+                                newOp = (1.0f - (newY - 0.80f) / 0.20f).coerceIn(0f, 1f)
+                            } else {
+                                newOp = 1.0f
+                            }
+                        }
+                        AppSeason.AUTUMN -> {
+                            // Maple leaf blowing with gusts of natural wind (drifts left)
+                            val leafGust = -0.0015f + (0.004f * kotlin.math.sin(time * 1.1f + p.curveAnchor))
+                            newX += leafGust
+                            newRot += 1.4f * kotlin.math.sin(time + p.id)
+                            
+                            // Fade out as it drifts down
+                            if (newY > 0.78f) {
+                                newOp = (1.0f - (newY - 0.78f) / 0.22f).coerceIn(0f, 1f)
+                            } else {
+                                newOp = 1.0f
+                            }
+                        }
+                        else -> {
+                            newOp = 1.0f
+                        }
+                    }
+                    
+                    // Recycle particles back to screen top if fully invisible or off screen
+                    if (newY > 1.05f || newOp <= 0.01f) {
+                        newY = if (season == AppSeason.SPRING) {
+                            (2..12).random() / 100f
+                        } else {
+                            -0.05f
+                        }
+                        // Spring sakura petals respawn near the cherry blossom branch (top-right side of the screen)
+                        newX = if (season == AppSeason.SPRING) {
+                            (55..95).random() / 100f
+                        } else {
+                            (0..100).random() / 100f
+                        }
+                        newOp = 1.0f
+                        newRot = (0..360).random().toFloat()
+                    }
+                    
+                    if (newX > 1.05f) {
+                        newX = -0.05f
+                        newY = if (season == AppSeason.SPRING) (2..12).random() / 100f else (0..50).random() / 100f
+                        newOp = 1.0f
+                    } else if (newX < -0.05f) {
+                        newX = 1.05f
+                        newY = if (season == AppSeason.SPRING) (2..12).random() / 100f else (0..50).random() / 100f
+                        newOp = 1.0f
+                    }
+                    
+                    p.copy(
+                        y = newY,
+                        x = newX,
+                        rotation = newRot,
+                        currentOpacity = newOp
+                    )
+                }
+                particles.clear()
+                particles.addAll(updated)
+            }
+        }
+    }
+    
+    androidx.compose.foundation.Canvas(
+        modifier = Modifier.fillMaxSize()
+    ) {
+        val w = size.width
+        val h = size.height
+        val globalAlpha = bloomAlpha.value
+        
+        // If the overlay has fully faded out over 3.5 seconds, save painting resources
+        if (globalAlpha <= 0.01f) return@Canvas
+        
+        // Spring Sakura Cherry Orchard Branch & Blossom Clusters
+        if (season == AppSeason.SPRING) {
+            val branchColor = Color(0xFF3E2723).copy(alpha = 0.9f * globalAlpha) // Saddle brown bark
+            val twigColor = Color(0xFF4E342E).copy(alpha = 0.85f * globalAlpha) // Lighter brown twigs
+            
+            // 1. Draw organic tapering main trunk (from top-right corner curving down)
+            val trunkPath = androidx.compose.ui.graphics.Path().apply {
+                moveTo(w, 0f)
+                cubicTo(w * 0.92f, h * 0.03f, w * 0.78f, h * 0.06f, w * 0.55f, h * 0.08f)
+                lineTo(w * 0.55f, h * 0.09f)
+                cubicTo(w * 0.80f, h * 0.07f, w * 0.94f, h * 0.04f, w, h * 0.01f)
+                close()
+            }
+            drawPath(path = trunkPath, color = branchColor)
+            
+            // 2. Draw organic sub-twigs stretching left and down
+            // Twig A
+            drawLine(
+                color = twigColor,
+                start = androidx.compose.ui.geometry.Offset(w * 0.82f, h * 0.045f),
+                end = androidx.compose.ui.geometry.Offset(w * 0.65f, h * 0.12f),
+                strokeWidth = 7f,
+                cap = androidx.compose.ui.graphics.StrokeCap.Round
+            )
+            // Twig B
+            drawLine(
+                color = twigColor,
+                start = androidx.compose.ui.geometry.Offset(w * 0.70f, h * 0.065f),
+                end = androidx.compose.ui.geometry.Offset(w * 0.48f, h * 0.095f),
+                strokeWidth = 5f,
+                cap = androidx.compose.ui.graphics.StrokeCap.Round
+            )
+            // Twig C
+            drawLine(
+                color = twigColor,
+                start = androidx.compose.ui.geometry.Offset(w * 0.60f, h * 0.11f),
+                end = androidx.compose.ui.geometry.Offset(w * 0.42f, h * 0.14f),
+                strokeWidth = 4.5f,
+                cap = androidx.compose.ui.graphics.StrokeCap.Round
+            )
+            
+            // 3. Define the five-petal cherry blossom drawing tool
+            val drawCherryBlossom: (androidx.compose.ui.geometry.Offset, Float) -> Unit = { center, r ->
+                // Draw five overlapping soft pink round petals
+                for (pIndex in 0 until 5) {
+                    val angleRad = (pIndex * 72f) * (Math.PI / 180f)
+                    val petalX = center.x + (r * 0.52f * kotlin.math.cos(angleRad)).toFloat()
+                    val petalY = center.y + (r * 0.52f * kotlin.math.sin(angleRad)).toFloat()
+                    
+                    drawCircle(
+                        color = Color(0xFFFFD1DC).copy(alpha = 0.95f * globalAlpha),
+                        center = androidx.compose.ui.geometry.Offset(petalX, petalY),
+                        radius = r * 0.55f
+                    )
+                }
+                // Draw warm magenta stamen center
+                drawCircle(
+                    color = Color(0xFFF472B6).copy(alpha = 0.95f * globalAlpha),
+                    center = center,
+                    radius = r * 0.35f
+                )
+                // Draw shiny gold pistil dot
+                drawCircle(
+                    color = Color(0xFFFFF176).copy(alpha = 0.95f * globalAlpha),
+                    center = center,
+                    radius = r * 0.15f
+                )
+            }
+            
+            // 4. Define twig leafy features
+            val drawLeafDetail: (androidx.compose.ui.geometry.Offset, Float) -> Unit = { center, angleDegrees ->
+                rotate(angleDegrees, pivot = center) {
+                    val leafPath = androidx.compose.ui.graphics.Path().apply {
+                        moveTo(center.x, center.y)
+                        quadraticTo(center.x + 10f, center.y - 5f, center.x + 18f, center.y)
+                        quadraticTo(center.x + 10f, center.y + 5f, center.x, center.y)
+                    }
+                    drawPath(path = leafPath, color = Color(0xCC9CCC65).copy(alpha = globalAlpha))
+                }
+            }
+            
+            // 5. Draw fresh green foliage nodes
+            drawLeafDetail(androidx.compose.ui.geometry.Offset(w * 0.75f, h * 0.055f), -35f)
+            drawLeafDetail(androidx.compose.ui.geometry.Offset(w * 0.62f, h * 0.085f), 15f)
+            drawLeafDetail(androidx.compose.ui.geometry.Offset(w * 0.51f, h * 0.13f), 45f)
+            
+            // 6. Draw highly-ordered blossom flower clusters directly on twig joints
+            drawCherryBlossom(androidx.compose.ui.geometry.Offset(w * 0.88f, h * 0.035f), 28f)
+            drawCherryBlossom(androidx.compose.ui.geometry.Offset(w * 0.80f, h * 0.052f), 24f)
+            drawCherryBlossom(androidx.compose.ui.geometry.Offset(w * 0.72f, h * 0.068f), 22f)
+            drawCherryBlossom(androidx.compose.ui.geometry.Offset(w * 0.65f, h * 0.12f), 20f)
+            drawCherryBlossom(androidx.compose.ui.geometry.Offset(w * 0.56f, h * 0.082f), 26f)
+            drawCherryBlossom(androidx.compose.ui.geometry.Offset(w * 0.48f, h * 0.095f), 22f)
+            drawCherryBlossom(androidx.compose.ui.geometry.Offset(w * 0.42f, h * 0.138f), 19f)
+            
+            // Sprinkle some tiny buds next to them
+            drawCircle(color = Color(0xFFF472B6).copy(alpha = 0.9f * globalAlpha), center = androidx.compose.ui.geometry.Offset(w * 0.61f, h * 0.10f), radius = 6f)
+            drawCircle(color = Color(0xFFFFD1DC).copy(alpha = 0.9f * globalAlpha), center = androidx.compose.ui.geometry.Offset(w * 0.59f, h * 0.11f), radius = 8f)
+            drawCircle(color = Color(0xFFF472B6).copy(alpha = 0.9f * globalAlpha), center = androidx.compose.ui.geometry.Offset(w * 0.46f, h * 0.12f), radius = 7f)
+        }
+
+        // Render Summer Solar bloom wash and glass refraction halos (which naturally disappear)
+        if (season == AppSeason.SUMMER) {
+            val alpha = globalAlpha
+            val scale = bloomScale.value
+            
+            // Blinding solar entrance radial gradient representing sun shining through glass
+            drawCircle(
+                brush = Brush.radialGradient(
+                    colors = listOf(
+                        Color(0xFFFFFBEB).copy(alpha = 0.90f * alpha),
+                        Color(0xFFFDE047).copy(alpha = 0.55f * alpha),
+                        Color(0xFFFDBA74).copy(alpha = 0.25f * alpha),
+                        Color.Transparent
+                    ),
+                    center = androidx.compose.ui.geometry.Offset(w * 0.85f, h * 0.15f),
+                    radius = size.minDimension * 1.5f * scale
+                ),
+                radius = size.minDimension * 1.5f * scale,
+                center = androidx.compose.ui.geometry.Offset(w * 0.85f, h * 0.15f)
+            )
+
+            // Warm double-iris camera lens and glass halo rings that align diagonally
+            drawCircle(
+                color = Color(0x2838BDF8).copy(alpha = 0.20f * alpha),
+                center = androidx.compose.ui.geometry.Offset(w * 0.5f, h * 0.5f),
+                radius = size.minDimension * 0.24f * scale
+            )
+
+            drawCircle(
+                color = Color(0x22A78BFA).copy(alpha = 0.22f * alpha),
+                center = androidx.compose.ui.geometry.Offset(w * 0.35f, h * 0.65f),
+                radius = size.minDimension * 0.14f * scale
+            )
+
+            drawCircle(
+                color = Color(0x35F59E0B).copy(alpha = 0.18f * alpha),
+                center = androidx.compose.ui.geometry.Offset(w * 0.15f, h * 0.85f),
+                radius = size.minDimension * 0.08f * scale
+            )
+        }
+        
+        // Draw the active falling season elements adjusted by global alpha
+        particles.forEach { p ->
+            val drawX = p.x * w
+            val drawY = p.y * h
+            val dSize = p.size
+            val opacity = p.currentOpacity
+            
+            if (opacity > 0.01f) {
+                rotate(p.rotation, pivot = androidx.compose.ui.geometry.Offset(drawX, drawY)) {
+                    when (season) {
+                        AppSeason.WINTER -> {
+                            // Little winter snow crystals
+                            drawCircle(
+                                color = p.color.copy(alpha = p.color.alpha * opacity * globalAlpha),
+                                center = androidx.compose.ui.geometry.Offset(drawX, drawY),
+                                radius = dSize / 2f
+                            )
+                        }
+                        AppSeason.SPRING -> {
+                            // High-fidelity soft cherry blossom petal oval curve path
+                            val path = androidx.compose.ui.graphics.Path().apply {
+                                moveTo(drawX, drawY - dSize / 2f)
+                                cubicTo(
+                                    drawX + dSize / 2f, drawY - dSize / 2f,
+                                    drawX + dSize * 0.75f, drawY + dSize / 3f,
+                                    drawX, drawY + dSize / 2f
+                                )
+                                cubicTo(
+                                    drawX - dSize * 0.75f, drawY + dSize / 3f,
+                                    drawX - dSize / 2f, drawY - dSize / 2f,
+                                    drawX, drawY - dSize / 2f
+                                )
+                            }
+                            drawPath(path = path, color = p.color.copy(alpha = p.color.alpha * opacity * globalAlpha))
+                            
+                            // Fine dark pink stamen heart-vein inside the falling petal
+                            val innerPath = androidx.compose.ui.graphics.Path().apply {
+                                moveTo(drawX, drawY - dSize / 4f)
+                                cubicTo(
+                                    drawX + dSize / 4f, drawY - dSize / 4f,
+                                    drawX + dSize * 0.40f, drawY + dSize / 6f,
+                                    drawX, drawY + dSize / 4f
+                                )
+                                cubicTo(
+                                    drawX - dSize * 0.40f, drawY + dSize / 6f,
+                                    drawX - dSize / 4f, drawY - dSize / 4f,
+                                    drawX, drawY - dSize / 4f
+                                )
+                            }
+                            drawPath(path = innerPath, color = Color(0xFFFF8BB0).copy(alpha = 0.9f * opacity * globalAlpha))
+                        }
+                        AppSeason.AUTUMN -> {
+                            // Exquisitely recognizable 5-lobe Canadian organic Maple leaf path
+                            val path = androidx.compose.ui.graphics.Path().apply {
+                                val rScale = dSize / 2f
+                                
+                                // Start at stem core connection
+                                moveTo(drawX, drawY + rScale * 0.8f)
+                                
+                                // Leaf stem pointing downwards
+                                lineTo(drawX, drawY + rScale * 1.15f)
+                                moveTo(drawX, drawY + rScale * 0.8f)
+                                
+                                // Lower-left lobe
+                                lineTo(drawX - rScale * 0.65f, drawY + rScale * 0.45f)
+                                lineTo(drawX - rScale * 0.45f, drawY + rScale * 0.25f)
+                                
+                                // Main-left lobe
+                                lineTo(drawX - rScale * 0.98f, drawY - rScale * 0.08f)
+                                lineTo(drawX - rScale * 0.55f, drawY - rScale * 0.18f)
+                                
+                                // Top-center lobe peak
+                                lineTo(drawX, drawY - rScale * 1.15f)
+                                
+                                // Main-right lobe
+                                lineTo(drawX + rScale * 0.55f, drawY - rScale * 0.18f)
+                                lineTo(drawX + rScale * 0.98f, drawY - rScale * 0.08f)
+                                
+                                // Lower-right lobe
+                                lineTo(drawX + rScale * 0.45f, drawY + rScale * 0.25f)
+                                lineTo(drawX + rScale * 0.65f, drawY + rScale * 0.45f)
+                                
+                                close()
+                            }
+                            drawPath(path = path, color = p.color.copy(alpha = p.color.alpha * opacity * globalAlpha))
+                            
+                            // Highly detailed dark-accented leaf veins
+                            drawLine(
+                                color = Color(0x3B6C200C).copy(alpha = globalAlpha),
+                                start = androidx.compose.ui.geometry.Offset(drawX, drawY + dSize * 0.18f),
+                                end = androidx.compose.ui.geometry.Offset(drawX, drawY - dSize * 0.45f),
+                                strokeWidth = 2f
+                            )
+                            drawLine(
+                                color = Color(0x3B6C200C).copy(alpha = globalAlpha),
+                                start = androidx.compose.ui.geometry.Offset(drawX, drawY + dSize * 0.18f),
+                                end = androidx.compose.ui.geometry.Offset(drawX - dSize * 0.38f, drawY - dSize * 0.12f),
+                                strokeWidth = 1.3f
+                            )
+                            drawLine(
+                                color = Color(0x3B6C200C).copy(alpha = globalAlpha),
+                                start = androidx.compose.ui.geometry.Offset(drawX, drawY + dSize * 0.18f),
+                                end = androidx.compose.ui.geometry.Offset(drawX + dSize * 0.38f, drawY - dSize * 0.12f),
+                                strokeWidth = 1.3f
+                            )
+                        }
+                        AppSeason.SUMMER -> {
+                            // Summer heat sunlight speck sparklers
+                            drawCircle(
+                                color = p.color.copy(alpha = p.color.alpha * opacity * globalAlpha),
+                                center = androidx.compose.ui.geometry.Offset(drawX, drawY),
+                                radius = dSize / 3f,
+                                alpha = 0.4f * opacity
+                            )
+                        }
+                    }
+                }
+            }
+        }
+    }
+}
+
