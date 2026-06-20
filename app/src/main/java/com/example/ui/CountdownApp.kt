@@ -15,6 +15,7 @@ import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.*
 import androidx.compose.material3.*
@@ -47,6 +48,7 @@ import kotlinx.coroutines.launch
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.ui.graphics.drawscope.rotate
+import androidx.compose.ui.graphics.drawscope.clipPath
 import java.util.*
 
 @Composable
@@ -225,8 +227,19 @@ fun CountdownApp(viewModel: CountdownViewModel) {
                 isEditMode = false,
                 isDarkMode = isDarkMode,
                 onDismiss = { showAddDialog = false },
-                onSave = { title, category, timestamp ->
-                    viewModel.addEvent(title, category, timestamp)
+                onSave = { title, category, timestamp, isRepeating, repeatStartDate, repeatEndDate, repeatDayOfWeek, repeatHour, repeatMinute, repeatAmPm ->
+                    viewModel.addEvent(
+                        title = title,
+                        category = category,
+                        targetTimestamp = timestamp,
+                        isRepeating = isRepeating,
+                        repeatStartDate = repeatStartDate,
+                        repeatEndDate = repeatEndDate,
+                        repeatDayOfWeek = repeatDayOfWeek,
+                        repeatHour = repeatHour,
+                        repeatMinute = repeatMinute,
+                        repeatAmPm = repeatAmPm
+                    )
                     showAddDialog = false
                     Toast.makeText(context, "Event Added!", Toast.LENGTH_SHORT).show()
                 }
@@ -240,11 +253,18 @@ fun CountdownApp(viewModel: CountdownViewModel) {
                 initialEvent = eventToEdit,
                 isDarkMode = isDarkMode,
                 onDismiss = { eventToEdit = null },
-                onSave = { title, category, timestamp ->
+                onSave = { title, category, timestamp, isRepeating, repeatStartDate, repeatEndDate, repeatDayOfWeek, repeatHour, repeatMinute, repeatAmPm ->
                     val updated = eventToEdit!!.copy(
                         title = title,
                         category = category,
-                        targetTimestamp = timestamp
+                        targetTimestamp = timestamp,
+                        isRepeating = isRepeating,
+                        repeatStartDate = repeatStartDate,
+                        repeatEndDate = repeatEndDate,
+                        repeatDayOfWeek = repeatDayOfWeek,
+                        repeatHour = repeatHour,
+                        repeatMinute = repeatMinute,
+                        repeatAmPm = repeatAmPm
                     )
                     viewModel.updateEvent(updated)
                     eventToEdit = null
@@ -1340,12 +1360,28 @@ fun GlassyEventDialog(
     initialEvent: CountdownEvent? = null,
     isDarkMode: Boolean,
     onDismiss: () -> Unit,
-    onSave: (title: String, category: String, targetTimestamp: Long) -> Unit
+    onSave: (
+        title: String,
+        category: String,
+        targetTimestamp: Long,
+        isRepeating: Boolean,
+        repeatStartDate: Long,
+        repeatEndDate: Long,
+        repeatDayOfWeek: Int,
+        repeatHour: Int,
+        repeatMinute: Int,
+        repeatAmPm: String
+    ) -> Unit
 ) {
     val context = LocalContext.current
     var title by remember { mutableStateOf(initialEvent?.title ?: "") }
     var category by remember { mutableStateOf(initialEvent?.category ?: "") }
     var targetTimestamp by remember { mutableStateOf(initialEvent?.targetTimestamp ?: System.currentTimeMillis()) }
+
+    var isRepeating by remember { mutableStateOf(initialEvent?.isRepeating ?: false) }
+    var repeatStartDate by remember { mutableStateOf(initialEvent?.repeatStartDate ?: System.currentTimeMillis()) }
+    var repeatEndDate by remember { mutableStateOf(initialEvent?.repeatEndDate ?: (System.currentTimeMillis() + 30L * 24 * 60 * 60 * 1000)) }
+    var repeatDayOfWeek by remember { mutableStateOf(initialEvent?.repeatDayOfWeek ?: Calendar.SATURDAY) }
 
     val textPrimary = if (isDarkMode) Color.White else Color(0xFF1E293B)
     val textSecondary = if (isDarkMode) Color.White.copy(alpha = 0.5f) else Color(0xFF64748B)
@@ -1362,13 +1398,16 @@ fun GlassyEventDialog(
         Box(
             modifier = Modifier
                 .fillMaxWidth(0.9f)
+                .fillMaxHeight(0.85f)
                 .clip(RoundedCornerShape(32.dp))
                 .background(glassBg)
                 .border(1.5.dp, glassBorder, RoundedCornerShape(32.dp))
                 .padding(24.dp)
         ) {
             Column(
-                modifier = Modifier.fillMaxWidth(),
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .verticalScroll(rememberScrollState()),
                 verticalArrangement = Arrangement.spacedBy(16.dp)
             ) {
                 Text(
@@ -1426,6 +1465,149 @@ fun GlassyEventDialog(
                     singleLine = true
                 )
 
+                // Check and show repeat setup if Category contains "class"
+                val isClassCategory = category.trim().contains("class", ignoreCase = true)
+                androidx.compose.animation.AnimatedVisibility(visible = isClassCategory) {
+                    Column(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .clip(RoundedCornerShape(20.dp))
+                            .background(if (isDarkMode) Color(0x11FFFFFF) else Color(0x0A000000))
+                            .border(1.dp, glassBorder.copy(alpha = 0.5f), RoundedCornerShape(20.dp))
+                            .padding(16.dp),
+                        verticalArrangement = Arrangement.spacedBy(12.dp)
+                    ) {
+                        Row(
+                            verticalAlignment = Alignment.CenterVertically,
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .clickable { isRepeating = !isRepeating }
+                        ) {
+                            Checkbox(
+                                checked = isRepeating,
+                                onCheckedChange = { isRepeating = it },
+                                colors = CheckboxDefaults.colors(
+                                    checkedColor = if (isDarkMode) Color(0xFF818CF8) else Color(0xFF4F46E5)
+                                )
+                            )
+                            Spacer(modifier = Modifier.width(8.dp))
+                            Text("Is Repeating Class?", color = textPrimary, fontWeight = FontWeight.SemiBold, fontSize = 15.sp)
+                        }
+
+                        if (isRepeating) {
+                            Text("REPEATING ON DAY OF WEEK", color = textSecondary, fontSize = 9.sp, fontWeight = FontWeight.Bold, letterSpacing = 1.sp)
+                            Row(
+                                modifier = Modifier.fillMaxWidth(),
+                                horizontalArrangement = Arrangement.SpaceBetween
+                            ) {
+                                val days = listOf("S", "M", "T", "W", "T", "F", "S")
+                                val calendarDays = listOf(
+                                    Calendar.SUNDAY, Calendar.MONDAY, Calendar.TUESDAY,
+                                    Calendar.WEDNESDAY, Calendar.THURSDAY, Calendar.FRIDAY, Calendar.SATURDAY
+                                )
+                                days.forEachIndexed { index, name ->
+                                    val calDay = calendarDays[index]
+                                    val isSelected = repeatDayOfWeek == calDay
+                                    val circleBg = if (isSelected) {
+                                        if (isDarkMode) Color(0xFF818CF8) else Color(0xFF4F46E5)
+                                    } else {
+                                        if (isDarkMode) Color(0x22FFFFFF) else Color(0x11000000)
+                                    }
+                                    val textColor = if (isSelected) Color.White else textPrimary
+                                    
+                                    Box(
+                                        contentAlignment = Alignment.Center,
+                                        modifier = Modifier
+                                            .size(36.dp)
+                                            .clip(CircleShape)
+                                            .background(circleBg)
+                                            .clickable { repeatDayOfWeek = calDay }
+                                    ) {
+                                        Text(name, color = textColor, fontWeight = FontWeight.Bold, fontSize = 12.sp)
+                                    }
+                                }
+                            }
+
+                            Row(
+                                modifier = Modifier.fillMaxWidth(),
+                                horizontalArrangement = Arrangement.spacedBy(8.dp)
+                            ) {
+                                // Start Date picker Button
+                                Column(
+                                    modifier = Modifier
+                                        .weight(1f)
+                                        .clip(RoundedCornerShape(12.dp))
+                                        .background(if (isDarkMode) Color(0x15FFFFFF) else Color(0x06000000))
+                                        .border(1.dp, glassBorder.copy(alpha = 0.3f), RoundedCornerShape(12.dp))
+                                        .clickable {
+                                            val cal = Calendar.getInstance().apply { timeInMillis = repeatStartDate }
+                                            android.app.DatePickerDialog(
+                                                context,
+                                                { _, yr, mo, dy ->
+                                                    val sel = Calendar.getInstance()
+                                                    sel.set(Calendar.YEAR, yr)
+                                                    sel.set(Calendar.MONTH, mo)
+                                                    sel.set(Calendar.DAY_OF_MONTH, dy)
+                                                    sel.set(Calendar.HOUR_OF_DAY, 0)
+                                                    sel.set(Calendar.MINUTE, 0)
+                                                    repeatStartDate = sel.timeInMillis
+                                                },
+                                                cal.get(Calendar.YEAR),
+                                                cal.get(Calendar.MONTH),
+                                                cal.get(Calendar.DAY_OF_MONTH)
+                                            ).show()
+                                        }
+                                        .padding(12.dp)
+                                ) {
+                                    Text("FROM START DATE", color = textSecondary, fontSize = 8.sp, fontWeight = FontWeight.Bold)
+                                    Text(
+                                        SimpleDateFormat("dd MMM yyyy", Locale.getDefault()).format(Date(repeatStartDate)),
+                                        color = textPrimary,
+                                        fontSize = 12.sp,
+                                        fontWeight = FontWeight.Bold
+                                    )
+                                }
+
+                                // End Date picker Button
+                                Column(
+                                    modifier = Modifier
+                                        .weight(1f)
+                                        .clip(RoundedCornerShape(12.dp))
+                                        .background(if (isDarkMode) Color(0x15FFFFFF) else Color(0x06000000))
+                                        .border(1.dp, glassBorder.copy(alpha = 0.3f), RoundedCornerShape(12.dp))
+                                        .clickable {
+                                            val cal = Calendar.getInstance().apply { timeInMillis = repeatEndDate }
+                                            android.app.DatePickerDialog(
+                                                context,
+                                                { _, yr, mo, dy ->
+                                                    val sel = Calendar.getInstance()
+                                                    sel.set(Calendar.YEAR, yr)
+                                                    sel.set(Calendar.MONTH, mo)
+                                                    sel.set(Calendar.DAY_OF_MONTH, dy)
+                                                    sel.set(Calendar.HOUR_OF_DAY, 23)
+                                                    sel.set(Calendar.MINUTE, 59)
+                                                    repeatEndDate = sel.timeInMillis
+                                                },
+                                                cal.get(Calendar.YEAR),
+                                                cal.get(Calendar.MONTH),
+                                                cal.get(Calendar.DAY_OF_MONTH)
+                                            ).show()
+                                        }
+                                        .padding(12.dp)
+                                ) {
+                                    Text("TO END DATE", color = textSecondary, fontSize = 8.sp, fontWeight = FontWeight.Bold)
+                                    Text(
+                                        SimpleDateFormat("dd MMM yyyy", Locale.getDefault()).format(Date(repeatEndDate)),
+                                        color = textPrimary,
+                                        fontSize = 12.sp,
+                                        fontWeight = FontWeight.Bold
+                                    )
+                                }
+                            }
+                        }
+                    }
+                }
+
                 // Date Time Picker selector area (with glassy block clickable)
                 Row(
                     modifier = Modifier
@@ -1434,9 +1616,7 @@ fun GlassyEventDialog(
                         .background(if (isDarkMode) Color(0x15FFFFFF) else Color(0x1B000000))
                         .border(1.dp, glassBorder, RoundedCornerShape(20.dp))
                         .clickable {
-                            // Standard date and time picker flow definition
                             val currentCalendar = Calendar.getInstance()
-                            // Set to current custom selected timestamp
                             currentCalendar.timeInMillis = targetTimestamp
 
                             android.app.DatePickerDialog(
@@ -1458,7 +1638,7 @@ fun GlassyEventDialog(
                                         },
                                         currentCalendar.get(Calendar.HOUR_OF_DAY),
                                         currentCalendar.get(Calendar.MINUTE),
-                                        true
+                                        false // 12-hour clock with AM/PM selection!
                                     ).show()
                                 },
                                 currentCalendar.get(Calendar.YEAR),
@@ -1472,7 +1652,7 @@ fun GlassyEventDialog(
                     horizontalArrangement = Arrangement.SpaceBetween
                 ) {
                     Column {
-                        Text("TARGET DATE & TIME", fontSize = 9.sp, fontWeight = FontWeight.Bold, color = textSecondary)
+                        Text(if (isClassCategory && isRepeating) "CLASS REMINDER TIME" else "TARGET DATE & TIME", fontSize = 9.sp, fontWeight = FontWeight.Bold, color = textSecondary)
                         Text(dateFormatted, fontSize = 14.sp, fontWeight = FontWeight.Bold, color = textPrimary)
                     }
                     Text(
@@ -1511,7 +1691,19 @@ fun GlassyEventDialog(
                                 Toast.makeText(context, "Please write an event title!", Toast.LENGTH_SHORT).show()
                             } else {
                                 val catVal = if (category.isBlank()) "General" else category
-                                onSave(title, catVal, targetTimestamp)
+                                val calTarget = Calendar.getInstance().apply { timeInMillis = targetTimestamp }
+                                onSave(
+                                    title,
+                                    catVal,
+                                    targetTimestamp,
+                                    isClassCategory && isRepeating,
+                                    repeatStartDate,
+                                    repeatEndDate,
+                                    repeatDayOfWeek,
+                                    calTarget.get(Calendar.HOUR_OF_DAY),
+                                    calTarget.get(Calendar.MINUTE),
+                                    if (calTarget.get(Calendar.AM_PM) == Calendar.AM) "AM" else "PM"
+                                )
                             }
                         },
                         colors = ButtonDefaults.buttonColors(
@@ -1676,6 +1868,9 @@ fun SeasonalAmbientOverlay(isDarkMode: Boolean) {
     val bloomAlpha = remember { androidx.compose.animation.core.Animatable(1.0f) }
     val bloomScale = remember { androidx.compose.animation.core.Animatable(0.7f) }
     
+    // Smooth 10s transient full moon visibility timer for nighttime
+    val moonAlpha = remember { androidx.compose.animation.core.Animatable(0f) }
+    
     var triggerAnimCounter by remember { mutableStateOf(0) }
     val lifecycleOwner = androidx.compose.ui.platform.LocalLifecycleOwner.current
     DisposableEffect(lifecycleOwner) {
@@ -1712,6 +1907,28 @@ fun SeasonalAmbientOverlay(isDarkMode: Boolean) {
                     easing = androidx.compose.animation.core.LinearOutSlowInEasing
                 )
             )
+        }
+        launch {
+            val c = Calendar.getInstance()
+            val hour = c.get(Calendar.HOUR_OF_DAY)
+            val isNight = hour >= 18 || hour < 6
+            if (isNight) {
+                moonAlpha.snapTo(0f)
+                // Smoothly fade-in over 1.5 seconds
+                moonAlpha.animateTo(
+                    targetValue = 1f,
+                    animationSpec = androidx.compose.animation.core.tween(durationMillis = 1500)
+                )
+                // Stay fully visible for exactly 7 seconds (making a grand presence)
+                delay(7000)
+                // Smoothly fade-out over 1.5 seconds (Total duration = 1.5s + 7.0s + 1.5s = 10 seconds!)
+                moonAlpha.animateTo(
+                    targetValue = 0f,
+                    animationSpec = androidx.compose.animation.core.tween(durationMillis = 1500)
+                )
+            } else {
+                moonAlpha.snapTo(0f)
+            }
         }
 
         val count = when (season) {
@@ -1888,9 +2105,10 @@ fun SeasonalAmbientOverlay(isDarkMode: Boolean) {
         val w = size.width
         val h = size.height
         val globalAlpha = bloomAlpha.value
+        val currentMoonAlpha = moonAlpha.value
         
-        // If the overlay has fully faded out over 3.5 seconds, save painting resources
-        if (globalAlpha <= 0.01f) return@Canvas
+        // If both the main overlay has fully faded out and the moon has faded out, save painting resources
+        if (globalAlpha <= 0.01f && currentMoonAlpha <= 0.01f) return@Canvas
         
         // Spring Sakura Cherry Orchard Branch & Blossom Clusters
         if (season == AppSeason.SPRING) {
@@ -1994,7 +2212,10 @@ fun SeasonalAmbientOverlay(isDarkMode: Boolean) {
         }
 
         // Render Summer Solar bloom wash and glass refraction halos (which naturally disappear)
-        if (season == AppSeason.SUMMER) {
+        val hourVal = calendar.get(Calendar.HOUR_OF_DAY)
+        val isNightTime = hourVal >= 18 || hourVal < 6
+
+        if (season == AppSeason.SUMMER && !isNightTime) {
             val alpha = globalAlpha
             val scale = bloomScale.value
             
@@ -2031,6 +2252,120 @@ fun SeasonalAmbientOverlay(isDarkMode: Boolean) {
                 color = Color(0x35F59E0B).copy(alpha = 0.18f * alpha),
                 center = androidx.compose.ui.geometry.Offset(w * 0.15f, h * 0.85f),
                 radius = size.minDimension * 0.08f * scale
+            )
+        }
+
+        // Draw an ultra-realistic moon on top if it is night time across ALL seasons
+        if (isNightTime) {
+            val moonCenter = androidx.compose.ui.geometry.Offset(w * 0.82f, h * 0.12f)
+            val moonRadius = size.minDimension * 0.08f
+
+            // 1. Moonlight glow / aura (outer glow)
+            drawCircle(
+                brush = Brush.radialGradient(
+                    colors = listOf(
+                        Color(0xFFE2E8F0).copy(alpha = 0.5f * currentMoonAlpha),
+                        Color(0xFF94A3B8).copy(alpha = 0.2f * currentMoonAlpha),
+                        Color.Transparent
+                    ),
+                    center = moonCenter,
+                    radius = moonRadius * 3.5f
+                ),
+                radius = moonRadius * 3.5f,
+                center = moonCenter
+            )
+
+            // 2. Main base sphere of the moon with a 3D radial shading (simulates sphere lighting)
+            drawCircle(
+                brush = Brush.radialGradient(
+                    colors = listOf(
+                        Color(0xFFFFFFFD).copy(alpha = 0.98f * currentMoonAlpha), // bright highlight
+                        Color(0xFFF4F3ED).copy(alpha = 0.98f * currentMoonAlpha), // midtone ivory
+                        Color(0xFFDCDAD0).copy(alpha = 0.98f * currentMoonAlpha), // shadow gray-ivory
+                        Color(0xFFB0AEA3).copy(alpha = 0.98f * currentMoonAlpha)  // dark rim
+                    ),
+                    center = androidx.compose.ui.geometry.Offset(moonCenter.x - moonRadius * 0.15f, moonCenter.y - moonRadius * 0.15f),
+                    radius = moonRadius * 1.3f
+                ),
+                radius = moonRadius,
+                center = moonCenter
+            )
+
+            // 3. Draw Lunar Maria (the large dark basaltic plains that make the realistic moon face)
+            // Maria 1 (Oceanus Procellarum / Mare Imbrium area)
+            drawCircle(
+                color = Color(0xFF908F85).copy(alpha = 0.35f * currentMoonAlpha),
+                center = androidx.compose.ui.geometry.Offset(moonCenter.x - moonRadius * 0.35f, moonCenter.y - moonRadius * 0.2f),
+                radius = moonRadius * 0.35f
+            )
+            // Maria 2 (Mare Serenitatis / Tranquillitatis)
+            drawCircle(
+                color = Color(0xFF908F85).copy(alpha = 0.38f * currentMoonAlpha),
+                center = androidx.compose.ui.geometry.Offset(moonCenter.x + moonRadius * 0.25f, moonCenter.y - moonRadius * 0.25f),
+                radius = moonRadius * 0.25f
+            )
+            // Maria 3 (Mare Fecunditatis)
+            drawCircle(
+                color = Color(0xFF86857A).copy(alpha = 0.35f * currentMoonAlpha),
+                center = androidx.compose.ui.geometry.Offset(moonCenter.x + moonRadius * 0.4f, moonCenter.y + moonRadius * 0.15f),
+                radius = moonRadius * 0.2f
+            )
+            // Maria 4 (Mare Nubium / Humorum)
+            drawCircle(
+                color = Color(0xFF86857A).copy(alpha = 0.35f * currentMoonAlpha),
+                center = androidx.compose.ui.geometry.Offset(moonCenter.x - moonRadius * 0.25f, moonCenter.y + moonRadius * 0.35f),
+                radius = moonRadius * 0.22f
+            )
+
+            // 4. Draw detailed craters with shadows and bright illuminated rims to look 3D
+            val drawCraterInline: (androidx.compose.ui.geometry.Offset, Float) -> Unit = { craterCenter, craterRadius ->
+                // Crater shadow pit
+                drawCircle(
+                    color = Color(0xFF5A5952).copy(alpha = 0.45f * currentMoonAlpha),
+                    center = craterCenter,
+                    radius = craterRadius
+                )
+                // Crater bright rim highlight
+                drawCircle(
+                    color = Color(0xFFFFFFFF).copy(alpha = 0.75f * currentMoonAlpha),
+                    center = androidx.compose.ui.geometry.Offset(craterCenter.x - craterRadius * 0.15f, craterCenter.y - craterRadius * 0.15f),
+                    radius = craterRadius * 0.85f,
+                    style = androidx.compose.ui.graphics.drawscope.Stroke(width = craterRadius * 0.25f)
+                )
+            }
+
+            // Southern Highlands & Tycho Crater
+            drawCraterInline(androidx.compose.ui.geometry.Offset(moonCenter.x - moonRadius * 0.1f, moonCenter.y + moonRadius * 0.6f), moonRadius * 0.12f)
+            // Draw fine ejecta rays originating from Tycho
+            for (i in 0 until 8) {
+                val angle = i * (Math.PI / 4.0)
+                val rayLength = moonRadius * (0.3f + (i % 3) * 0.15f)
+                drawLine(
+                    color = Color(0xFFF1F5F9).copy(alpha = 0.28f * currentMoonAlpha),
+                    start = androidx.compose.ui.geometry.Offset(moonCenter.x - moonRadius * 0.1f, moonCenter.y + moonRadius * 0.6f),
+                    end = androidx.compose.ui.geometry.Offset(
+                        (moonCenter.x - moonRadius * 0.1f + rayLength * kotlin.math.cos(angle)).toFloat(),
+                        (moonCenter.y + moonRadius * 0.6f + rayLength * kotlin.math.sin(angle)).toFloat()
+                    ),
+                    strokeWidth = 1.5f
+                )
+            }
+
+            // Copernicus Crater
+            drawCraterInline(androidx.compose.ui.geometry.Offset(moonCenter.x - moonRadius * 0.45f, moonCenter.y + moonRadius * 0.1f), moonRadius * 0.09f)
+            // Kepler Crater
+            drawCraterInline(androidx.compose.ui.geometry.Offset(moonCenter.x - moonRadius * 0.6f, moonCenter.y + moonRadius * 0.22f), moonRadius * 0.07f)
+            // Plato Crater (dark floor, bright rim)
+            drawCircle(
+                color = Color(0xFF6E6D66).copy(alpha = 0.45f * currentMoonAlpha),
+                center = androidx.compose.ui.geometry.Offset(moonCenter.x - moonRadius * 0.15f, moonCenter.y - moonRadius * 0.65f),
+                radius = moonRadius * 0.08f
+            )
+            drawCircle(
+                color = Color(0xFFFFFFFF).copy(alpha = 0.65f * currentMoonAlpha),
+                center = androidx.compose.ui.geometry.Offset(moonCenter.x - moonRadius * 0.15f, moonCenter.y - moonRadius * 0.65f),
+                radius = moonRadius * 0.08f,
+                style = androidx.compose.ui.graphics.drawscope.Stroke(width = 1.5f)
             )
         }
         

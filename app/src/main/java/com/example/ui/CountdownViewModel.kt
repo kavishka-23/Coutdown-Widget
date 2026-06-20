@@ -34,21 +34,33 @@ class CountdownViewModel(
 
     private var timerJob: Job? = null
 
-    // Get all events
+    // Get all events with dynamic target resolution for repeating classes
     val allEvents: StateFlow<List<CountdownEvent>> = repository.allEvents
+        .combine(_currentTime) { events, now ->
+            events.map { event ->
+                if (event.isRepeating) {
+                    val nextTarget = getEffectiveTargetTimestamp(event, now)
+                    event.copy(targetTimestamp = nextTarget)
+                } else {
+                    event
+                }
+            }
+        }
         .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), emptyList())
 
     // Get the currently pinned event or fallback to the first event if none is pinned
-    val pinnedEvent: StateFlow<CountdownEvent?> = repository.pinnedEvent
+    val pinnedEvent: StateFlow<CountdownEvent?> = allEvents
+        .map { list ->
+            list.firstOrNull { it.isPinned } ?: list.firstOrNull()
+        }
         .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), null)
 
     init {
-        startTimer()
         seedDefaultDataIfEmpty()
     }
 
-    private fun startTimer() {
-        timerJob?.cancel()
+    fun resumeTimer() {
+        if (timerJob?.isActive == true) return
         timerJob = viewModelScope.launch {
             while (isActive) {
                 val now = System.currentTimeMillis()
@@ -74,12 +86,14 @@ class CountdownViewModel(
                     }
                 }
 
-                // Push dynamic clock updates live of seconds directly to the home screen widgets
-                com.example.CountdownWidgetProvider.triggerWidgetUpdate(getApplication())
-
                 delay(1000)
             }
         }
+    }
+
+    fun pauseTimer() {
+        timerJob?.cancel()
+        timerJob = null
     }
 
     private fun seedDefaultDataIfEmpty() {
@@ -120,20 +134,86 @@ class CountdownViewModel(
         sharedPrefs.edit().putBoolean("is_dark_mode", newVal).apply()
     }
 
-    fun addEvent(title: String, category: String, targetTimestamp: Long) {
+    fun addEvent(
+        title: String,
+        category: String,
+        targetTimestamp: Long,
+        isRepeating: Boolean = false,
+        repeatStartDate: Long = 0L,
+        repeatEndDate: Long = 0L,
+        repeatDayOfWeek: Int = -1,
+        repeatHour: Int = 0,
+        repeatMinute: Int = 0,
+        repeatAmPm: String = "AM"
+    ) {
         viewModelScope.launch {
             val isFirst = repository.allEvents.first().isEmpty()
             val event = CountdownEvent(
                 title = title,
                 category = category,
                 targetTimestamp = targetTimestamp,
-                isPinned = isFirst // pin if it's the first
+                isPinned = isFirst, // pin if it's the first
+                isRepeating = isRepeating,
+                repeatStartDate = repeatStartDate,
+                repeatEndDate = repeatEndDate,
+                repeatDayOfWeek = repeatDayOfWeek,
+                repeatHour = repeatHour,
+                repeatMinute = repeatMinute,
+                repeatAmPm = repeatAmPm
             )
             val newId = repository.insert(event)
             com.example.CountdownNotificationHelper.resetMilestoneNotifications(getApplication(), newId.toInt())
             // Trigger sync immediately
-            com.example.CountdownWidgetProvider.triggerWidgetUpdate(getApplication())
+            com.example.CountdownWidgetProvider.triggerWidgetUpdate(getApplication(), forceRefreshCache = true)
         }
+    }
+
+    fun getEffectiveTargetTimestamp(event: CountdownEvent, now: Long): Long {
+        if (!event.isRepeating) return event.targetTimestamp
+        
+        // Find first occurrence on or after repeatStartDate
+        val calStart = java.util.Calendar.getInstance().apply {
+            timeInMillis = event.repeatStartDate
+            set(java.util.Calendar.SECOND, 0)
+            set(java.util.Calendar.MILLISECOND, 0)
+            set(java.util.Calendar.HOUR_OF_DAY, event.repeatHour)
+            set(java.util.Calendar.MINUTE, event.repeatMinute)
+        }
+        
+        // Adjust calStart to the correct day of week
+        var dayDiffStart = event.repeatDayOfWeek - calStart.get(java.util.Calendar.DAY_OF_WEEK)
+        if (dayDiffStart < 0) {
+            dayDiffStart += 7
+        }
+        calStart.add(java.util.Calendar.DAY_OF_YEAR, dayDiffStart)
+        
+        // If the next occurrence has not been reached yet
+        if (now <= calStart.timeInMillis) {
+            return calStart.timeInMillis
+        }
+        
+        // Otherwise, find the next occurrence relative to 'now'
+        val calNow = java.util.Calendar.getInstance().apply {
+            timeInMillis = now
+            set(java.util.Calendar.SECOND, 0)
+            set(java.util.Calendar.MILLISECOND, 0)
+            set(java.util.Calendar.HOUR_OF_DAY, event.repeatHour)
+            set(java.util.Calendar.MINUTE, event.repeatMinute)
+        }
+        
+        var dayDiff = event.repeatDayOfWeek - calNow.get(java.util.Calendar.DAY_OF_WEEK)
+        if (dayDiff < 0 || (dayDiff == 0 && calNow.timeInMillis <= now)) {
+            dayDiff += 7
+        }
+        calNow.add(java.util.Calendar.DAY_OF_YEAR, dayDiff)
+        
+        // Check if within repeatEndDate
+        if (calNow.timeInMillis <= event.repeatEndDate) {
+            return calNow.timeInMillis
+        }
+        
+        // If past repeatEndDate, return final end date
+        return event.repeatEndDate
     }
 
     fun updateEvent(event: CountdownEvent) {
@@ -141,7 +221,7 @@ class CountdownViewModel(
             repository.update(event)
             com.example.CountdownNotificationHelper.resetMilestoneNotifications(getApplication(), event.id)
             // Trigger sync immediately
-            com.example.CountdownWidgetProvider.triggerWidgetUpdate(getApplication())
+            com.example.CountdownWidgetProvider.triggerWidgetUpdate(getApplication(), forceRefreshCache = true)
         }
     }
 
@@ -157,7 +237,7 @@ class CountdownViewModel(
                 }
             }
             // Trigger sync immediately
-            com.example.CountdownWidgetProvider.triggerWidgetUpdate(getApplication())
+            com.example.CountdownWidgetProvider.triggerWidgetUpdate(getApplication(), forceRefreshCache = true)
         }
     }
 
@@ -165,7 +245,7 @@ class CountdownViewModel(
         viewModelScope.launch {
             repository.pinEvent(eventId)
             // Trigger sync immediately
-            com.example.CountdownWidgetProvider.triggerWidgetUpdate(getApplication())
+            com.example.CountdownWidgetProvider.triggerWidgetUpdate(getApplication(), forceRefreshCache = true)
         }
     }
 

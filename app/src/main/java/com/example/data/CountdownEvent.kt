@@ -9,5 +9,12 @@ data class CountdownEvent(
     val title: String,
     val category: String,
     val targetTimestamp: Long,
-    val isPinned: Boolean = false
+    val isPinned: Boolean = false,
+    val isRepeating: Boolean = false,
+    val repeatStartDate: Long = 0L,
+    val repeatEndDate: Long = 0L,
+    val repeatDayOfWeek: Int = -1, // Calendar.SUNDAY(1) to Calendar.SATURDAY(7)
+    val repeatHour: Int = 0,
+    val repeatMinute: Int = 0,
+    val repeatAmPm: String = "AM"
 )
